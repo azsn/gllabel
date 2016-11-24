@@ -27,6 +27,7 @@
 #include <glm/glm.hpp>
 #include <chrono>
 #include <set>
+#include <errno.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
@@ -245,15 +246,20 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 			} else if(bezierPartIndex == 1 && type == 1) {
 				currentBezier.c = p;
 				bezierPartIndex++;
-			
+			} else if(bezierPartIndex == 2 && type == 0) {
+				currentBezier.e1 = p;
+				curves.push_back(currentBezier);
+				// printf("(%.0f, %.0f) to (%.0f, %.0f) through (%.0f, %.0f)\n", currentBezier.e0.x, currentBezier.e0.y, currentBezier.e1.x, currentBezier.e1.y, currentBezier.c.x, currentBezier.c.y);
+				currentBezier.e0 = currentBezier.e1;
+				bezierPartIndex = 1;
+				
 			// I'm not sure why type ever equals 1 when it's part index 2
 			// since that would imply two control points in a row even though
 			// they're not cubic curves, but sometimes it happens. It seems
 			// that they should just be treated as not control points.
-			} else if((bezierPartIndex == 2 && type == 0) || (bezierPartIndex == 2 && type == 1)) {
+			} else if(bezierPartIndex == 2 && type == 1) {
 				currentBezier.e1 = p;
 				curves.push_back(currentBezier);
-				// printf("(%.0f, %.0f) to (%.0f, %.0f) through (%.0f, %.0f)\n", currentBezier.e0.x, currentBezier.e0.y, currentBezier.e1.x, currentBezier.e1.y, currentBezier.c.x, currentBezier.c.y);
 				currentBezier.e0 = currentBezier.e1;
 				bezierPartIndex = 1;
 			} else {
@@ -304,7 +310,7 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 	FT_Pos width = face->glyph->metrics.width;
 	FT_Pos height = face->glyph->metrics.height;
 	
-	uint8_t gridWidth = std::max(std::min(width * gridHeight / height, 255L), 1L); 
+	uint8_t gridWidth = std::max(std::min(width * gridHeight / height, (long)gridHeight), 1L); 
 	*gridWidthOut = gridWidth;
 	
 	// grid is a linearized 2D array, where each cell stores the indicies
@@ -370,6 +376,57 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 	return true;
 }
 
+#pragma pack(push, 1)
+struct bitmapdata
+{
+	char magic[2];
+	uint32_t size;
+	uint16_t res1;
+	uint16_t res2;
+	uint32_t offset;
+	
+	uint32_t biSize;
+	uint32_t width;
+	uint32_t height;
+	uint16_t planes;
+	uint16_t bitCount;
+	uint32_t compression;
+	uint32_t imageSizeBytes;
+	uint32_t xpelsPerMeter;
+	uint32_t ypelsPerMeter;
+	uint32_t clrUsed;
+	uint32_t clrImportant;
+};
+#pragma pack(pop)
+
+void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
+{
+	FILE *f = fopen(path, "wb");
+	
+	bitmapdata head;
+	head.magic[0] = 'B';
+	head.magic[1] = 'M';
+	head.size = sizeof(bitmapdata) + width*height*channels;
+	head.res1 = 0;
+	head.res2 = 0;
+	head.offset = sizeof(bitmapdata);
+	head.biSize = 40;
+	head.width = width;
+	head.height = height;
+	head.planes = 1;
+	head.bitCount = 8*channels;
+	head.compression = 0;
+	head.imageSizeBytes = width*height*channels;
+	head.xpelsPerMeter = 0;
+	head.ypelsPerMeter = 0;
+	head.clrUsed = 0;
+	head.clrImportant = 0;
+	
+	fwrite(&head, sizeof(head), 1, f);
+	fwrite(data, head.imageSizeBytes, 1, f);
+	fclose(f);
+}
+
 void getGlyphCurves()
 {
 	FT_Library ft;
@@ -387,44 +444,97 @@ void getGlyphCurves()
 		FT_Done_FreeType(ft);
 	}
 	
-	auto start = std::chrono::steady_clock::now();
+	// auto start = std::chrono::steady_clock::now();
 	
-	int C = 256;
-	for(int i=0;i<C;++i)
+	uint8_t gridHeight = 8; // width is <= height
+	uint32_t charStart = 33;
+	uint32_t charEnd = 127;
+	uint32_t numChars = charEnd - charStart + 1;
+	uint32_t gridmapWidth = ceil(sqrt(numChars)) * gridHeight;
+	// uint32_t v = gridmapWidth;
+	// v--;
+	// v |= v >> 1;
+	// v |= v >> 2;
+	// v |= v >> 4;
+	// v |= v >> 8;
+	// v |= v >> 16;
+	// v++;
+	// 
+	// printf("num: %i, width: %i, widthpow2: %i\n", numChars, gridmapWidth, v);
+	
+	uint8_t *gridmap = new uint8_t[gridmapWidth * gridmapWidth * 4]();
+	
+	size_t x=0,y=0;
+	for(uint32_t i=charStart; i<=charEnd; ++i)
 	{
-		printf("%i\n", i);
 		std::vector<Bezier> curves;
 		std::vector<std::set<uint16_t>> grid;
 		uint8_t gridWidth=0;
-		bool success = calculateGridForGlyph(face, i, 8, &curves, &grid, &gridWidth);
+		bool success = calculateGridForGlyph(face, i, gridHeight, &curves, &grid, &gridWidth);
+		
+		for(uint32_t j=0;j<gridHeight;++j)
+		{
+			for(uint32_t k=0;k<gridWidth;++k)
+			{
+				size_t gridIdx = j*gridWidth + k;
+				size_t gridmapIdx = (y+j)*gridmapWidth*4 + (x+k)*4;
+				
+				size_t itc = 0;
+				for(auto it=grid[gridIdx].begin(); it!=grid[gridIdx].end(); ++it)
+					gridmap[gridmapIdx+(itc++)] = *it + 1;
+			}
+		}
+		
+		x += gridHeight;
+		if(x >= gridmapWidth)
+		{
+			x = 0;
+			y += gridHeight;
+		}
 	}
 	
-	auto end = std::chrono::steady_clock::now();
+	writeBMP("~/projection/build/out.bmp", gridmapWidth, gridmapWidth, 4, gridmap);
+	delete [] gridmap;
 	
-	std::chrono::duration<double> elapsed_seconds = end-start;
-	double t = elapsed_seconds.count()*1000;
-	printf("total: %fms, per %fms\n", t, t/C);
+	// int C = 256;
+	// for(int i=charStart; i<=charEnd; ++i)
+	// {
+	// 	printf("\n%i\n", i);
+	// 	std::vector<Bezier> curves;
+	// 	std::vector<std::set<uint16_t>> grid;
+	// 	uint8_t gridWidth=0;
+	// 	bool success = calculateGridForGlyph(face, i, 8, &curves, &grid, &gridWidth);
+	// 	
+		// if(gridWidth > 0)
+		// {
+		// 	uint8_t gridHeight = grid.size() / gridWidth;
+		// 	size_t x=0;
+		// 	for(uint8_t i=0;i<gridHeight;++i)
+		// 	{
+		// 		for(uint8_t j=0;j<gridWidth;++j)
+		// 		{
+		// 			if(grid[x].size() == 0)
+		// 				printf("  ");
+		// 			else
+		// 				printf("xx");
+		// 				// printf("%02i", grid[x].size());
+		// 				// printf("%3d", grid[x].size());
+		// 			x++;
+		// 		}
+		// 		printf("\n");
+		// 	}
+		// }
+	// }
+	
+	// auto end = std::chrono::steady_clock::now();
+	// 
+	// std::chrono::duration<double> elapsed_seconds = end-start;
+	// double t = elapsed_seconds.count()*1000;
+	// printf("total: %fms, per %fms\n", t, t/C);
 	
 	// printf("\nsuccess: %i, gridWidth: %i\n\n", success, gridWidth);
 	
-	// if(gridWidth > 0)
-	// {
-	// 	uint8_t gridHeight = grid.size() / gridWidth;
-	// 	size_t x=0;
-	// 	for(uint8_t i=0;i<gridHeight;++i)
-	// 	{
-	// 		for(uint8_t j=0;j<gridWidth;++j)
-	// 		{
-	// 			if(grid[x].size() == 0)
-	// 				printf("   ");
-	// 			else
-	// 				// printf("%02i", grid[x].size());
-	// 				printf("%3d", grid[x].size());
-	// 			x++;
-	// 		}
-	// 		printf("\n");
-	// 	}
-	// }
+	
 	
 	FT_Done_Face(face);
 	
