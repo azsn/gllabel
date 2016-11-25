@@ -438,60 +438,49 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
 	
 	// Find grid cells contained within the curve
 	
-	std::vector<uint8_t> intersections;
+	std::vector<float> intersections;
 	intersections.reserve(curves.size()*2); // Max of 2 intersections to a line per curve
 	
 	for(size_t i=0; i<gridHeight; ++i)
 	{
-		// printf("i=%i\n", i);
 		intersections.clear();
 	
 		float Y = i + 0.5; // Test midpoints of cells
 		for(size_t j=0; j<curves.size(); ++j)
 		{
-			// printf("j1=%i\n", j);
 			float x1, x2;
 			bezierIntersectY(curves[j].e0, curves[j].c, curves[j].e1, Y * height / gridHeight, &x1, &x2);
-			// printf("%f, %f\n", x1, x2);
 			if(!isnan(x1))
-			{
-				uint8_t x1i = (uint8_t)glm::clamp((signed long)(x1 * gridWidth / width), 0L, (signed long)gridWidth-1);
-				// printf("x1i: %i\n", x1i);
-				intersections.push_back(x1i);
-			}
+				intersections.push_back(x1 * gridWidth / width);
 			if(!isnan(x2))
-			{
-				uint8_t x2i = (uint8_t)glm::clamp((signed long)(x2 * gridWidth / width), 0L, (signed long)gridWidth-1);
-				// printf("x2i: %i\n", x2i);
-				intersections.push_back(x2i);
-			}
+				intersections.push_back(x2 * gridWidth / width);
 		}
 	
 		std::sort(intersections.begin(), intersections.end());
 		
-		// printf("intersections: %i\n", intersections.size());
+		// Necessary? Should never be required on a closed curve.
+		if(intersections[intersections.size() - 1] < gridWidth)
+			intersections.push_back(gridWidth);
 		
-		bool within = false;
-		size_t start = 0;
+		bool inside = false;
+		float start = 0;
 		for(size_t j=0;j<intersections.size();++j)
 		{
-			// grid[i*gridWidth+intersections[j]].insert(254);
-			
-			// // printf("j2=%d, %i\n", j, intersections[j]);
-			size_t end = intersections[j];
-			if(within)
+			float end = intersections[j];
+			// printf("row %i intersection [%f, %f]\n", i, start, end);
+			if(inside)
 			{
-				for(size_t k=start+1;k<end;++k)
+				size_t roundS = glm::clamp(round(start), (float)0.0, (float)(gridWidth));
+				size_t roundE = glm::clamp(round(end), (float)0.0, (float)(gridWidth));
+				// printf("inside, %i, %i\n", roundS, roundE);
+				
+				for(size_t k=roundS;k<roundE;++k)
 				{
-					// printf("k=%d\n",k);
 					size_t gridIndex = (gridHeight-i-1)*gridWidth + k;
-					// if(grid[gridIndex].size() == 0)
-					// {
-						grid[gridIndex].insert(254);
-					// }
+					grid[gridIndex].insert(254);
 				}
 			}
-			within = !within;
+			inside = !inside;
 			start = end;
 		}
 	}
@@ -514,13 +503,13 @@ void getGlyphCurves()
 	
 	FT_Face face;
 	
-	if(FT_New_Face(ft, "/usr/share/fonts/noto/NotoMono-Regular.ttf", 0, &face))
+	if(FT_New_Face(ft, "/usr/share/fonts/noto/NotoSans-Regular.ttf", 0, &face))
 	{
 		printf("Failed to load NotoMono-Regular\n");
 		FT_Done_FreeType(ft);
 	}
 	
-	uint8_t gridHeight = 20; // width is <= height
+	uint8_t gridHeight = 40; // width is <= height
 	uint32_t charStart = 33;
 	uint32_t charEnd = 127;
 	uint32_t numChars = charEnd - charStart + 1;
@@ -675,64 +664,7 @@ void initDobbie()
 	
 	numGlyphs = 1;
 	
-	uint8_t *vertexBuf = new uint8_t[numGlyphs * 6 * 20](); // 6 vertices per glyph, 20 bytes per vertex
-	int16_t *oPosition = (int16_t *)(vertexBuf); // 2 shorts
-	uint16_t *oGridRect = (uint16_t *)(vertexBuf + 4); // 4 shorts
-	uint8_t *oColor = (uint8_t *)(vertexBuf + 12); // 4 bytes
-	uint8_t *oNormCoord = (uint8_t *)(vertexBuf + 16); // 2 bytes
-	uint16_t *oBezierIndex = (uint16_t *)(vertexBuf + 18); // 1 short
 	
-	oPosition[0 +0] = -2553;
-	oPosition[0 +1] = -3027;
-	oPosition[10+0] = -2183;
-	oPosition[10+1] = -3027;
-	oPosition[20+0] = -2553;
-	oPosition[20+1] = -3359;
-	oPosition[30+0] = -2183;
-	oPosition[30+1] = -3359;
-	oPosition[40+0] = -2553;
-	oPosition[40+1] = -3359;
-	oPosition[50+0] = -2183;
-	oPosition[50+1] = -3027;
-	for(unsigned int x=0;x<6;++x)
-	{
-		oGridRect[10*x +0] = 2*20;
-		oGridRect[10*x +1] = 6*20;
-		oGridRect[10*x +2] = 20;
-		oGridRect[10*x +3] = 20;
-	}
-	oColor[0 +0] = 255; oColor[0 +1] = 0; oColor[0 +2] = 0; oColor[0 +3] = 255;
-	oColor[20+0] = 0; oColor[20+1] = 255; oColor[20+2] = 0; oColor[20+3] = 255;
-	oColor[40+0] = 0; oColor[40+1] = 0; oColor[40+2] = 255; oColor[40+3] = 255;
-	oColor[60+0] = 255; oColor[60+1] = 255; oColor[60+2] = 0; oColor[60+3] = 255;
-	oColor[80+0] = 0; oColor[80+1] = 0; oColor[80+2] = 255; oColor[80+3] = 255;
-	oColor[100+0] = 0; oColor[100+1] = 255; oColor[100+2] = 0; oColor[100+3] = 255;
-	for(unsigned int x=0;x<6;++x)
-	{
-		unsigned int k = (x < 4) ? x : 6 - x;
-		oNormCoord[20*x + 0] = (k & 1) ? 1 : 0;
-		oNormCoord[20*x + 1] = (k > 1) ? 1 : 0;
-	}
-	for(int i=0;i<=50;i+=10)
-		oBezierIndex[i +0] = 32;
-	
-	// oCurvesMin[0] = 0;
-	// oCurvesMin[1] = 0;
-	// oCurvesMin[6+0] = 1;
-	// oCurvesMin[6+1] = 0;
-	// oCurvesMin[12+0] = 0;
-	// oCurvesMin[12+1] = 1;
-	// oCurvesMin[0 +0] = (0)*2;
-	// oCurvesMin[0 +1] = (100)*2;
-	// oCurvesMin[6 +0] = (0)*2+1;
-	// oCurvesMin[6 +1] = (100)*2;
-	// oCurvesMin[12+0] = (0)*2;
-	// oCurvesMin[12+1] = (100)*2+1;
-
-	glGenBuffers(1, &glyphBuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, glyphBuffer);
-	glBufferData(GL_ARRAY_BUFFER, numGlyphs * 6 * 20, vertexBuf, GL_STATIC_DRAW);
-	delete [] vertexBuf;
 	
 	// delete [] rawGlyphs.data;
 	// delete [] atlas.data;
@@ -802,13 +734,95 @@ void initDobbie()
 	// rgba[0] = 0; rgba[1]=0; rgba[2]=0; rgba[3]=0;
 	// texture2D(&atlas, 4, rgba, 2, 66);
 	// printf("w: %i, h: %i, l: %i, rgba: %i, %i, %i, %i\n", atlas.width, atlas.height, atlas.length, rgba[0], rgba[1], rgba[2], rgba[3]);
-
+	
+	bmp at;
+	loadBMP("gridmap.bmp", &at);
+	// loadBMP("../dobbie/atlas.bmp", &at);
+	
+	for(uint32_t i=0;i<at.length;i+=4)
+	{
+		// if(at.data[i+2] < at.data[i+3])
+			// printf("at %i, %i\n", at.data[i+2], at.data[i+3]);
+		uint8_t val = (at.data[i] > 250 || at.data[i+1] > 250 || at.data[i+2] > 250 || at.data[i+3] > 250) ? 255 : 0;
+		// uint8_t val = (at.data[i+2] < at.data[i+3]) ? 255 : 0;
+		at.data[i+0] = val;
+		at.data[i+1] = val;
+		at.data[i+2] = val;
+		at.data[i+3] = val;
+	}
+	
+	writeBMP("dobbieatlasmask.bmp", at.width, at.height, 4, at.data);
 }
 
 double zoom = 0;
+float p = 0;
 
 void dobbieRender()
 {
+	int q = ((int)p)%95;
+	
+	uint8_t *vertexBuf = new uint8_t[numGlyphs * 6 * 20](); // 6 vertices per glyph, 20 bytes per vertex
+	int16_t *oPosition = (int16_t *)(vertexBuf); // 2 shorts
+	uint16_t *oGridRect = (uint16_t *)(vertexBuf + 4); // 4 shorts
+	uint8_t *oColor = (uint8_t *)(vertexBuf + 12); // 4 bytes
+	uint8_t *oNormCoord = (uint8_t *)(vertexBuf + 16); // 2 bytes
+	uint16_t *oBezierIndex = (uint16_t *)(vertexBuf + 18); // 1 short
+	
+	oPosition[0 +0] = -2553;
+	oPosition[0 +1] = -3027;
+	oPosition[10+0] = -2183;
+	oPosition[10+1] = -3027;
+	oPosition[20+0] = -2553;
+	oPosition[20+1] = -3359;
+	oPosition[30+0] = -2183;
+	oPosition[30+1] = -3359;
+	oPosition[40+0] = -2553;
+	oPosition[40+1] = -3359;
+	oPosition[50+0] = -2183;
+	oPosition[50+1] = -3027;
+	for(unsigned int x=0;x<6;++x)
+	{
+		oGridRect[10*x +0] = (q%10)*40;
+		oGridRect[10*x +1] = (9-q/10)*40;
+		oGridRect[10*x +2] = 40;
+		oGridRect[10*x +3] = 40;
+	}
+	oColor[0 +0] = 255; oColor[0 +1] = 0; oColor[0 +2] = 0; oColor[0 +3] = 255;
+	oColor[20+0] = 0; oColor[20+1] = 255; oColor[20+2] = 0; oColor[20+3] = 255;
+	oColor[40+0] = 0; oColor[40+1] = 0; oColor[40+2] = 255; oColor[40+3] = 255;
+	oColor[60+0] = 255; oColor[60+1] = 255; oColor[60+2] = 0; oColor[60+3] = 255;
+	oColor[80+0] = 0; oColor[80+1] = 0; oColor[80+2] = 255; oColor[80+3] = 255;
+	oColor[100+0] = 0; oColor[100+1] = 255; oColor[100+2] = 0; oColor[100+3] = 255;
+	for(unsigned int x=0;x<6;++x)
+	{
+		unsigned int k = (x < 4) ? x : 6 - x;
+		oNormCoord[20*x + 0] = (k & 1) ? 1 : 0;
+		oNormCoord[20*x + 1] = (k > 1) ? 1 : 0;
+	}
+	for(int i=0;i<=50;i+=10)
+		oBezierIndex[i +0] = q;
+		
+	p+=0.05;
+	
+	// oCurvesMin[0] = 0;
+	// oCurvesMin[1] = 0;
+	// oCurvesMin[6+0] = 1;
+	// oCurvesMin[6+1] = 0;
+	// oCurvesMin[12+0] = 0;
+	// oCurvesMin[12+1] = 1;
+	// oCurvesMin[0 +0] = (0)*2;
+	// oCurvesMin[0 +1] = (100)*2;
+	// oCurvesMin[6 +0] = (0)*2+1;
+	// oCurvesMin[6 +1] = (100)*2;
+	// oCurvesMin[12+0] = (0)*2;
+	// oCurvesMin[12+1] = (100)*2+1;
+
+	glGenBuffers(1, &glyphBuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, glyphBuffer);
+	glBufferData(GL_ARRAY_BUFFER, numGlyphs * 6 * 20, vertexBuf, GL_STREAM_DRAW);
+	delete [] vertexBuf;
+	
+	
 	zoom += 0.01;
 	
 	glUseProgram(glyphProgram);
@@ -836,8 +850,8 @@ void dobbieRender()
 	glUniform2f(uBeziermapTexelSize, 1.0/256.0, 1.0/95.0);
 	
 	float aspect = (768*1.5) / (1024*1.5);
-	float zoomx = std::sin(zoom) + 1.01;
-	float zoomy = std::sin(zoom) + 1.01;
+	float zoomx = 1.01;
+	float zoomy = 1.01;
 	zoomx /= 100.0; zoomy /= 100.0;
 	float translateX = 0.4295;
 	float translateY = 0.5965;
