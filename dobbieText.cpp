@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_OUTLINE_H
 
 struct bmp
 {
@@ -240,6 +241,54 @@ struct Bezier
 	glm::vec2 c; // control point
 };
 
+struct OutlineDecomposeState
+{
+	FT_Vector prevPoint;
+	std::vector<Bezier> *curves;
+	FT_Pos metricsX;
+	FT_Pos metricsY;
+};
+
+int outlineMoveTo(const FT_Vector *to, void *user)
+{
+	// printf("move to %i, %i\n", to->x, to->y);
+	auto state = static_cast<OutlineDecomposeState *>(user);
+	state->prevPoint = *to;
+	return 0;
+}
+
+int outlineLineTo(const FT_Vector *to, void *user)
+{
+	// printf("line to %i, %i\n", to->x, to->y);
+	auto state = static_cast<OutlineDecomposeState *>(user);
+	Bezier b;
+	b.e0 = glm::vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
+	b.c = b.e0;
+	b.e1 = glm::vec2(to->x - state->metricsX, to->y - state->metricsY);
+	state->curves->push_back(b);
+	state->prevPoint = *to;
+	return 0;
+}
+
+int outlineConicTo(const FT_Vector *control, const FT_Vector *to, void *user)
+{
+	// printf("conic to %i, %i, through %i, %i\n", to->x, to->y, control->x, control->y);
+	auto state = static_cast<OutlineDecomposeState *>(user);
+	Bezier b;
+	b.e0 = glm::vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
+	b.c = glm::vec2(control->x - state->metricsX, control->y - state->metricsY);
+	b.e1 = glm::vec2(to->x - state->metricsX, to->y - state->metricsY);
+	state->curves->push_back(b);
+	state->prevPoint = *to;
+	return 0;
+}
+
+int outlineCubicTo(const FT_Vector *control1, const FT_Vector *control2, const FT_Vector *to, void *user)
+{
+	// printf("cubic to %i, %i, though %i, %i and %i, %i\n", to->x, to->y, control1->x, control1->y, control2->x, control2->y);
+	return -1;
+}
+
 /*
  * Returns a list of Bezier curves representing an outline rendered by Freetype.
  * Straight lines are represented with c == e0.
@@ -252,7 +301,7 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 
 	if(outline->n_points <= 0)
 		return curves;
-		
+	
 	// For some reason, the glyphs aren't always positioned with their bottom
 	// left corner at 0,0. So find the min x and y values.
 	FT_Pos metricsX=outline->points[0].x, metricsY=outline->points[0].y;
@@ -262,6 +311,31 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 		metricsY = std::min(metricsY, outline->points[i].y);
 	}
 	
+	OutlineDecomposeState state;
+	state.prevPoint = {0};
+	state.curves = &curves;
+	state.metricsX = metricsX;
+	state.metricsY = metricsY;
+	
+	FT_Outline_Funcs funcs;
+	funcs.move_to = outlineMoveTo;
+	funcs.line_to = outlineLineTo;
+	funcs.conic_to = outlineConicTo;
+	funcs.cubic_to = outlineCubicTo;
+	funcs.shift = 0;
+	funcs.delta = 0;
+	
+	int suc = FT_Outline_Decompose(outline, &funcs, &state);
+	printf("suc: %i\n", suc);
+	if(suc == 0)
+		return curves;
+	else
+		return std::vector<Bezier>();
+	
+	// printf("decompose success: %i\n", suc);
+	
+	
+	
 	// Each contour represents one continuous line made of multiple beziers.
 	// The points re-use endpoints as the starting point of the next segment,
 	// so its important to set the next curve's e0 to the current curve's e1.
@@ -270,7 +344,7 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 		Bezier currentBezier;
 		short bezierPartIndex = 0;
 		size_t startCurve = curves.size();
-		
+		printf("> Contour %i\n", k);
 		for(short i=(k==0)?0:outline->contours[k-1]+1; i<=outline->contours[k]; ++i)
 		{
 			glm::vec2 p(outline->points[i].x-metricsX, outline->points[i].y-metricsY);
@@ -281,6 +355,9 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 			if(type == 1)
 				type += CHECK_BIT(outline->tags[i], 1) ? 1 : 0; // 1 if regular control point, 2 if third-order control point
 		#undef CHECK_BIT
+			
+			printf("  Point (%i, %i) type %i\n", (int)p.x, (int)p.y, type);
+
 			
 			// TODO: Third order control points (cubic beziers) are unsupported.
 			// Eventually, convert cubic bezier into two quadratics.
@@ -354,6 +431,8 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
 	std::vector<Bezier> *curvesOut, std::vector<std::set<uint16_t>> *gridOut,
 	uint8_t *gridWidthOut, FT_Pos *glyphWidth, FT_Pos *glyphHeight)
 {
+	printf("Gridding glyph at code point %i\n", point);
+	
 	// Load the glyph. FT_LOAD_NO_SCALE implies that FreeType should not render
 	// the glyph to a bitmap, and ensures that metrics and outline points are
 	// represented in font units instead of em.
@@ -487,6 +566,7 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
 	
 	*curvesOut = curves;
 	*gridOut = grid;
+	printf("done\n");
 	return true;
 }
 
@@ -538,11 +618,23 @@ void getGlyphCurves()
 		FT_Pos glyphWidth, glyphHeight;
 		bool success = calculateGridForGlyph(face, i, gridHeight, &curves, &grid, &gridWidth, &glyphWidth, &glyphHeight);
 		// printf("%i num curves %i\n", i, curves.size());
-		
+		if(!success)
+			continue;
+			
 		// Max that can fit in 128 width
 		// TODO: Fix this magic number crap
 		if(curves.size() > 42)
+		{
+			x += gridHeight;
+			if(x >= gridmapWidth)
+			{
+				x = 0;
+				y += gridHeight;
+			}
+		
+			printf("too many curves");
 			continue;
+		}
 		
 		// Although the data is represented as a 32bit texture, it's actually
 		// two 16bit ints per pixel, each with an x and y coordinate for
@@ -802,7 +894,7 @@ void dobbieRender()
 	for(int i=0;i<=50;i+=10)
 		oBezierIndex[i +0] = q;
 		
-	p+=0.05;
+	p+=0.1;
 	
 	// oCurvesMin[0] = 0;
 	// oCurvesMin[1] = 0;
@@ -850,6 +942,8 @@ void dobbieRender()
 	glUniform2f(uBeziermapTexelSize, 1.0/256.0, 1.0/95.0);
 	
 	float aspect = (768*1.5) / (1024*1.5);
+	// float zoomx = std::sin(zoom) + 1.01;
+	// float zoomy = std::sin(zoom) + 1.01;
 	float zoomx = 1.01;
 	float zoomy = 1.01;
 	zoomx /= 100.0; zoomy /= 100.0;
