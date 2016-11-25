@@ -27,6 +27,7 @@
 #include <glm/glm.hpp>
 #include <chrono>
 #include <set>
+#include <algorithm>
 #include <errno.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -43,10 +44,13 @@ static bmp rawGlyphs = {0};
 static GLuint atlasTexId = 0;
 static GLuint glyphBuffer = 0;
 static GLuint atlasBuffer = 0;
+static GLuint gridmapTexId = 0;
+static GLuint bezierTexId = 0;
 
-static GLuint uAtlasSampler = 0;
-static GLuint uTexelSize = 0;
-static GLuint uDebug = 0;
+static GLuint uGridmapSampler = 0;
+static GLuint uBeziermapSampler = 0;
+static GLuint uGridmapTexelSize = 0;
+static GLuint uBeziermapTexelSize = 0;
 static GLuint uPositionMul = 0;
 static GLuint uPositionAdd = 0;
 static unsigned int numGlyphs = 0;
@@ -85,6 +89,58 @@ bool loadBMP(const char *path, bmp *s)
 	
 	
 	return true;
+}
+
+
+#pragma pack(push, 1)
+struct bitmapdata
+{
+	char magic[2];
+	uint32_t size;
+	uint16_t res1;
+	uint16_t res2;
+	uint32_t offset;
+	
+	uint32_t biSize;
+	uint32_t width;
+	uint32_t height;
+	uint16_t planes;
+	uint16_t bitCount;
+	uint32_t compression;
+	uint32_t imageSizeBytes;
+	uint32_t xpelsPerMeter;
+	uint32_t ypelsPerMeter;
+	uint32_t clrUsed;
+	uint32_t clrImportant;
+};
+#pragma pack(pop)
+
+void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
+{
+	FILE *f = fopen(path, "wb");
+	
+	bitmapdata head;
+	head.magic[0] = 'B';
+	head.magic[1] = 'M';
+	head.size = sizeof(bitmapdata) + width*height*channels;
+	head.res1 = 0;
+	head.res2 = 0;
+	head.offset = sizeof(bitmapdata);
+	head.biSize = 40;
+	head.width = width;
+	head.height = height;
+	head.planes = 1;
+	head.bitCount = 8*channels;
+	head.compression = 0;
+	head.imageSizeBytes = width*height*channels;
+	head.xpelsPerMeter = 0;
+	head.ypelsPerMeter = 0;
+	head.clrUsed = 0;
+	head.clrImportant = 0;
+	
+	fwrite(&head, sizeof(head), 1, f);
+	fwrite(data, head.imageSizeBytes, 1, f);
+	fclose(f);
 }
 
 unsigned short ushortWithFlag(unsigned short x, unsigned short flag)
@@ -294,7 +350,9 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
  * gridWidth is calculated based on the given grid height and the width of the
  * character. 
  */
-bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std::vector<Bezier> *curvesOut, std::vector<std::set<uint16_t>> *gridOut, uint8_t *gridWidthOut)
+bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
+	std::vector<Bezier> *curvesOut, std::vector<std::set<uint16_t>> *gridOut,
+	uint8_t *gridWidthOut, FT_Pos *glyphWidth, FT_Pos *glyphHeight)
 {
 	// Load the glyph. FT_LOAD_NO_SCALE implies that FreeType should not render
 	// the glyph to a bitmap, and ensures that metrics and outline points are
@@ -306,11 +364,13 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 	std::vector<Bezier> curves = getCurvesForOutline(&face->glyph->outline);
 	if(curves.size() == 0)
 		return false;
-
+	
 	FT_Pos width = face->glyph->metrics.width;
 	FT_Pos height = face->glyph->metrics.height;
+	*glyphWidth = width;
+	*glyphHeight = height;
 	
-	uint8_t gridWidth = std::max(std::min(width * gridHeight / height, (long)gridHeight), 1L); 
+	uint8_t gridWidth = gridHeight;// std::max(std::min(width * gridHeight / height, (long)gridHeight), 1L); 
 	*gridWidthOut = gridWidth;
 	
 	// grid is a linearized 2D array, where each cell stores the indicies
@@ -325,6 +385,15 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 	// up to twice, for a maximum of four cells per line per curve.
 	for(size_t i=0; i<curves.size(); ++i)
 	{
+		// TODO: The std::set insert operation is really slow?
+		// It appears that this operation nearly doubles the runtime
+		// of calculateGridForGlyph.
+		#define SETGRID(x, y) { grid[(y)*gridWidth+(x)].insert(i); }
+		
+		// If a curve intersects no grid lines, it won't be included. So
+		// make sure the cell the the curve starts in is included
+		SETGRID(std::min((unsigned long)(curves[i].e0.x * gridWidth / width), (unsigned long)gridWidth-1), std::min((unsigned long)(curves[i].e0.y * gridHeight / height), (unsigned long)gridHeight-1));
+		
 		for(size_t j=0; j<=gridWidth; ++j)
 		{
 			float y1, y2;
@@ -335,10 +404,6 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 			uint8_t x1i = (size_t)std::max((signed long)j-1, (signed long)0);
 			uint8_t x2i = (size_t)std::min((signed long)j, (signed long)gridWidth-1);
 			
-			// TODO: The std::set insert operation is really slow?
-			// It appears that this operation nearly doubles the runtime
-			// of calculateGridForGlyph.
-		#define SETGRID(x, y) { grid[y*gridWidth+x].insert(i); }
 			if(!isnan(y1)) { // If an intersection did not occur, val is NAN
 				SETGRID(x1i, y1i);
 				SETGRID(x2i, y1i);
@@ -367,7 +432,67 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 				SETGRID(x2i, y1i);
 				SETGRID(x2i, y2i);
 			}
+		}
 		#undef SETGRID
+	}
+	
+	// Find grid cells contained within the curve
+	
+	std::vector<uint8_t> intersections;
+	intersections.reserve(curves.size()*2); // Max of 2 intersections to a line per curve
+	
+	for(size_t i=0; i<gridHeight; ++i)
+	{
+		// printf("i=%i\n", i);
+		intersections.clear();
+	
+		float Y = i + 0.5; // Test midpoints of cells
+		for(size_t j=0; j<curves.size(); ++j)
+		{
+			// printf("j1=%i\n", j);
+			float x1, x2;
+			bezierIntersectY(curves[j].e0, curves[j].c, curves[j].e1, Y * height / gridHeight, &x1, &x2);
+			// printf("%f, %f\n", x1, x2);
+			if(!isnan(x1))
+			{
+				uint8_t x1i = (uint8_t)glm::clamp((signed long)(x1 * gridWidth / width), 0L, (signed long)gridWidth-1);
+				// printf("x1i: %i\n", x1i);
+				intersections.push_back(x1i);
+			}
+			if(!isnan(x2))
+			{
+				uint8_t x2i = (uint8_t)glm::clamp((signed long)(x2 * gridWidth / width), 0L, (signed long)gridWidth-1);
+				// printf("x2i: %i\n", x2i);
+				intersections.push_back(x2i);
+			}
+		}
+	
+		std::sort(intersections.begin(), intersections.end());
+		
+		// printf("intersections: %i\n", intersections.size());
+		
+		bool within = false;
+		size_t start = 0;
+		for(size_t j=0;j<intersections.size();++j)
+		{
+			// grid[i*gridWidth+intersections[j]].insert(254);
+			
+			// // printf("j2=%d, %i\n", j, intersections[j]);
+			size_t end = intersections[j];
+			if(within)
+			{
+				for(size_t k=start+1;k<end;++k)
+				{
+					// printf("k=%d\n",k);
+					size_t gridIndex = (gridHeight-i-1)*gridWidth + k;
+					// if(grid[gridIndex].size() == 0)
+					// {
+						grid[gridIndex].insert(254);
+					// }
+				}
+			}
+			within = !within;
+			start = end;
 		}
 	}
 	
@@ -376,56 +501,7 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight, std
 	return true;
 }
 
-#pragma pack(push, 1)
-struct bitmapdata
-{
-	char magic[2];
-	uint32_t size;
-	uint16_t res1;
-	uint16_t res2;
-	uint32_t offset;
-	
-	uint32_t biSize;
-	uint32_t width;
-	uint32_t height;
-	uint16_t planes;
-	uint16_t bitCount;
-	uint32_t compression;
-	uint32_t imageSizeBytes;
-	uint32_t xpelsPerMeter;
-	uint32_t ypelsPerMeter;
-	uint32_t clrUsed;
-	uint32_t clrImportant;
-};
-#pragma pack(pop)
-
-void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
-{
-	FILE *f = fopen(path, "wb");
-	
-	bitmapdata head;
-	head.magic[0] = 'B';
-	head.magic[1] = 'M';
-	head.size = sizeof(bitmapdata) + width*height*channels;
-	head.res1 = 0;
-	head.res2 = 0;
-	head.offset = sizeof(bitmapdata);
-	head.biSize = 40;
-	head.width = width;
-	head.height = height;
-	head.planes = 1;
-	head.bitCount = 8*channels;
-	head.compression = 0;
-	head.imageSizeBytes = width*height*channels;
-	head.xpelsPerMeter = 0;
-	head.ypelsPerMeter = 0;
-	head.clrUsed = 0;
-	head.clrImportant = 0;
-	
-	fwrite(&head, sizeof(head), 1, f);
-	fwrite(data, head.imageSizeBytes, 1, f);
-	fclose(f);
-}
+static int GridmapSize = 0;
 
 void getGlyphCurves()
 {
@@ -444,9 +520,7 @@ void getGlyphCurves()
 		FT_Done_FreeType(ft);
 	}
 	
-	// auto start = std::chrono::steady_clock::now();
-	
-	uint8_t gridHeight = 8; // width is <= height
+	uint8_t gridHeight = 20; // width is <= height
 	uint32_t charStart = 33;
 	uint32_t charEnd = 127;
 	uint32_t numChars = charEnd - charStart + 1;
@@ -462,7 +536,9 @@ void getGlyphCurves()
 	// 
 	// printf("num: %i, width: %i, widthpow2: %i\n", numChars, gridmapWidth, v);
 	
-	uint8_t *gridmap = new uint8_t[gridmapWidth * gridmapWidth * 4]();
+	uint8_t gridmapChannels = 4, beziermapChannels = 4;
+	uint8_t *gridmap = new uint8_t[gridmapWidth * gridmapWidth * gridmapChannels]();
+	uint8_t *beziermap = new uint8_t[256*numChars*beziermapChannels]();
 	
 	size_t x=0,y=0;
 	for(uint32_t i=charStart; i<=charEnd; ++i)
@@ -470,18 +546,51 @@ void getGlyphCurves()
 		std::vector<Bezier> curves;
 		std::vector<std::set<uint16_t>> grid;
 		uint8_t gridWidth=0;
-		bool success = calculateGridForGlyph(face, i, gridHeight, &curves, &grid, &gridWidth);
+		FT_Pos glyphWidth, glyphHeight;
+		bool success = calculateGridForGlyph(face, i, gridHeight, &curves, &grid, &gridWidth, &glyphWidth, &glyphHeight);
+		// printf("%i num curves %i\n", i, curves.size());
+		
+		// Max that can fit in 128 width
+		// TODO: Fix this magic number crap
+		if(curves.size() > 42)
+			continue;
+		
+		// Although the data is represented as a 32bit texture, it's actually
+		// two 16bit ints per pixel, each with an x and y coordinate for
+		// the bezier. Every six 16bit ints (3 pixels) is a full bezier
+		// TODO: The shader combines each set of bytes into 16 bit ints, which
+		// depends on endianness. So this currently only works on little-endian
+		uint8_t *bezierlist = beziermap + 256*4*(i-charStart);
+		uint16_t *bezierlist16 = (uint16_t *)bezierlist;
+
+		for(uint32_t j=0;j<curves.size();++j)
+		{
+			bezierlist16[j*6+0] = curves[j].e0.x * 65535 / glyphWidth;
+			bezierlist16[j*6+1] = curves[j].e0.y * 65535 / glyphHeight;
+			bezierlist16[j*6+2] = curves[j].c.x * 65535 / glyphWidth;
+			bezierlist16[j*6+3] = curves[j].c.y * 65535 / glyphHeight;
+			bezierlist16[j*6+4] = curves[j].e1.x * 65535 / glyphWidth;
+			bezierlist16[j*6+5] = curves[j].e1.y * 65535 / glyphHeight;
+		}
 		
 		for(uint32_t j=0;j<gridHeight;++j)
 		{
 			for(uint32_t k=0;k<gridWidth;++k)
 			{
 				size_t gridIdx = j*gridWidth + k;
-				size_t gridmapIdx = (y+j)*gridmapWidth*4 + (x+k)*4;
+				size_t gridmapIdx = (gridmapWidth-(y+j)-1)*gridmapWidth*4 + (x+k)*4;
 				
 				size_t itc = 0;
 				for(auto it=grid[gridIdx].begin(); it!=grid[gridIdx].end(); ++it)
-					gridmap[gridmapIdx+(itc++)] = *it + 1;
+				{
+					if(itc >= gridmapChannels) // TODO: More than four beziers per pixel?
+					{
+						printf("MORE THAN 4 on %i\n", i);
+						break;
+					}
+					gridmap[gridmapIdx+itc] = *it + 1;
+					itc++;
+				}
 			}
 		}
 		
@@ -492,54 +601,34 @@ void getGlyphCurves()
 			y += gridHeight;
 		}
 	}
+
+	glGenTextures(1, &gridmapTexId);
+	glBindTexture(GL_TEXTURE_2D, gridmapTexId);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, gridmapWidth, gridmapWidth, 0,
+		GL_RGBA, GL_UNSIGNED_BYTE, gridmap);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	GridmapSize = gridmapWidth;
 	
-	writeBMP("~/projection/build/out.bmp", gridmapWidth, gridmapWidth, 4, gridmap);
+	glGenTextures(1, &bezierTexId);
+	glBindTexture(GL_TEXTURE_2D, bezierTexId);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, numChars, 0,
+		GL_RGBA, GL_UNSIGNED_BYTE, beziermap);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	
+	writeBMP("gridmap.bmp", gridmapWidth, gridmapWidth, 4, gridmap);
+	
+	delete [] beziermap;
 	delete [] gridmap;
-	
-	// int C = 256;
-	// for(int i=charStart; i<=charEnd; ++i)
-	// {
-	// 	printf("\n%i\n", i);
-	// 	std::vector<Bezier> curves;
-	// 	std::vector<std::set<uint16_t>> grid;
-	// 	uint8_t gridWidth=0;
-	// 	bool success = calculateGridForGlyph(face, i, 8, &curves, &grid, &gridWidth);
-	// 	
-		// if(gridWidth > 0)
-		// {
-		// 	uint8_t gridHeight = grid.size() / gridWidth;
-		// 	size_t x=0;
-		// 	for(uint8_t i=0;i<gridHeight;++i)
-		// 	{
-		// 		for(uint8_t j=0;j<gridWidth;++j)
-		// 		{
-		// 			if(grid[x].size() == 0)
-		// 				printf("  ");
-		// 			else
-		// 				printf("xx");
-		// 				// printf("%02i", grid[x].size());
-		// 				// printf("%3d", grid[x].size());
-		// 			x++;
-		// 		}
-		// 		printf("\n");
-		// 	}
-		// }
-	// }
-	
-	// auto end = std::chrono::steady_clock::now();
-	// 
-	// std::chrono::duration<double> elapsed_seconds = end-start;
-	// double t = elapsed_seconds.count()*1000;
-	// printf("total: %fms, per %fms\n", t, t/C);
-	
-	// printf("\nsuccess: %i, gridWidth: %i\n\n", success, gridWidth);
-	
-	
 	
 	FT_Done_Face(face);
 	
 	FT_Done_FreeType(ft);
-	printf("Freetype success\n");
+	// printf("Freetype success\n");
 }
 
 void texture2D(bmp *tex, uint8_t channels, uint8_t *out, uint32_t x, uint32_t y)
@@ -567,153 +656,153 @@ void fetchVec2(bmp *tex, uint32_t x, uint32_t y, uint16_t *a, uint16_t *b)
 
 void initDobbie()
 {
+	std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
 	getGlyphCurves();
+    end = std::chrono::system_clock::now();
+ 
+    std::chrono::duration<double> elapsed_seconds = end-start;
+	printf("getGlyphCurves done, %fms\n", elapsed_seconds.count()*1000);
 	
 	glyphProgram = loadShaderProgram("../shaders/glyphvs.glsl", "../shaders/glyphfs.glsl");
 	
-	uAtlasSampler = glGetUniformLocation(glyphProgram, "uAtlasSampler");
-	uTexelSize = glGetUniformLocation(glyphProgram, "uTexelSize");
-	uDebug = glGetUniformLocation(glyphProgram, "uDebug");
+	uGridmapSampler = glGetUniformLocation(glyphProgram, "uGridmapSampler");
+	uBeziermapSampler = glGetUniformLocation(glyphProgram, "uBeziermapSampler");
+	uGridmapTexelSize = glGetUniformLocation(glyphProgram, "uGridmapTexelSize");
+	uBeziermapTexelSize = glGetUniformLocation(glyphProgram, "uBeziermapTexelSize");
 	uPositionMul = glGetUniformLocation(glyphProgram, "uPositionMul");
 	uPositionAdd = glGetUniformLocation(glyphProgram, "uPositionAdd");
 	
-	if(!loadBMP("../dobbie/atlas.bmp", &atlas))
-	{
-		printf("error loading dobbie atlas\n");
-		return;
-	}
+	numGlyphs = 1;
 	
-	if(!loadBMP("../dobbie/glyphs.bmp", &rawGlyphs))
-	{
-		printf("error loading dobbie glyphs\n");
-		return;
-	}
-	
-	glGenTextures(1, &atlasTexId);
-	glBindTexture(GL_TEXTURE_2D, atlasTexId);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, atlas.width, atlas.height, 0,
-		GL_RGBA, GL_UNSIGNED_BYTE, atlas.data);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-	
-	// uint32_t *atlasInt = new uint32_t[atlas.length];
-	// for(uint32_t i=0;i<atlas.length;++i)
-	// 	atlasInt[i] = 255;//atlas.data[i];
-	// 
-	// glGenBuffers(1, &atlasBuffer);
-	// glBindBuffer(GL_SHADER_STORAGE_BUFFER, atlasBuffer);
-	// glBufferData(GL_SHADER_STORAGE_BUFFER, atlas.width * atlas.height * 4 * sizeof(uint32_t), atlasInt, GL_STATIC_DRAW);
-	// delete [] atlasInt;
-	
-	numGlyphs = 1;//rawGlyphs.length / 20; // 20 bytes per glyph
-	printf("Loading %i glyphs\n", numGlyphs);
-	
-	int16_t *uposition = (int16_t *)rawGlyphs.data;
-	int16_t *position = (int16_t *)rawGlyphs.data;
-	uint16_t *curvesMin = (uint16_t *)(rawGlyphs.data + 4);
-	int16_t *deltaNext = (int16_t *)(rawGlyphs.data + 8);
-	int16_t *deltaPrev = (int16_t *)(rawGlyphs.data + 12);
-	uint16_t *color = (uint16_t *)(rawGlyphs.data + 16);
-	
-	uint8_t *vertexBuf = new uint8_t[numGlyphs * 6 * 12](); // 6 vertices per glyph, 12 bytes per vertex
-	int16_t *oPosition = (int16_t *)(vertexBuf);
-	uint16_t *oCurvesMin = (uint16_t *)(vertexBuf + 4);
-	uint8_t *oColor = (uint8_t *)(vertexBuf + 8);
-	
-	uint32_t src = 0, dst = 0;
-	for(unsigned int i=0; i<numGlyphs; i++)
-	{
-		if(i > 0)
-		{
-			position[src+0] += position[src-10+0];
-			position[src+1] += position[src-10+1];
-		}
-		
-		for(unsigned int j=0;j<6;++j)
-		{
-			unsigned int k = (j < 4) ? j : 6 - j;
-			
-			// oPosition[dst+0] = position[src+0];
-			// oPosition[dst+1] = position[src+1];
-			// 
-			// if (k == 1) {
-			// 	oPosition[dst+0] += deltaNext[src+0];
-			// 	oPosition[dst+1] += deltaNext[src+1];
-			// } else if (k == 2) {
-			// 	oPosition[dst+0] += deltaPrev[src+0];
-			// 	oPosition[dst+1] += deltaPrev[src+1];
-			// } else if (k == 3) {
-			// 	oPosition[dst+0] += deltaNext[src+0] + deltaPrev[src+0];
-			// 	oPosition[dst+1] += deltaNext[src+1] + deltaPrev[src+1];
-			// }
-			// 
-			// printf("pos (%i, %i)\n", oPosition[dst], oPosition[dst+1]);
-			
-			oCurvesMin[dst+0] = ushortWithFlag(curvesMin[src+0], k & 1);
-			oCurvesMin[dst+1] = ushortWithFlag(curvesMin[src+1], k > 1);
-			printf("csrc: %i, %i, cdst: %i, %i\n", curvesMin[src+0], curvesMin[src+1], oCurvesMin[dst+0], oCurvesMin[dst+1]);
-			// oColor[dst+0]     = color[src+0];
-			// oColor[dst+1]     = color[src+1];
-	
-			if (i<10) {
-				//console.log(i, j, oPosition[dst+0], oPosition[dst+1], positions.x[i], positions.y[i]);
-			}
-	
-			dst += 6;
-		}
-		
-		src += 10;
-	}
+	uint8_t *vertexBuf = new uint8_t[numGlyphs * 6 * 20](); // 6 vertices per glyph, 20 bytes per vertex
+	int16_t *oPosition = (int16_t *)(vertexBuf); // 2 shorts
+	uint16_t *oGridRect = (uint16_t *)(vertexBuf + 4); // 4 shorts
+	uint8_t *oColor = (uint8_t *)(vertexBuf + 12); // 4 bytes
+	uint8_t *oNormCoord = (uint8_t *)(vertexBuf + 16); // 2 bytes
+	uint16_t *oBezierIndex = (uint16_t *)(vertexBuf + 18); // 1 short
 	
 	oPosition[0 +0] = -2553;
 	oPosition[0 +1] = -3027;
-	oPosition[6 +0] = -2183;
-	oPosition[6 +1] = -3027;
-	oPosition[12+0] = -2553;
-	oPosition[12+1] = -3359;
-	oPosition[18+0] = -2183;
-	oPosition[18+1] = -3359;
-	oPosition[24+0] = -2553;
-	oPosition[24+1] = -3359;
+	oPosition[10+0] = -2183;
+	oPosition[10+1] = -3027;
+	oPosition[20+0] = -2553;
+	oPosition[20+1] = -3359;
 	oPosition[30+0] = -2183;
-	oPosition[30+1] = -3027;
+	oPosition[30+1] = -3359;
+	oPosition[40+0] = -2553;
+	oPosition[40+1] = -3359;
+	oPosition[50+0] = -2183;
+	oPosition[50+1] = -3027;
+	for(unsigned int x=0;x<6;++x)
+	{
+		oGridRect[10*x +0] = 2*20;
+		oGridRect[10*x +1] = 6*20;
+		oGridRect[10*x +2] = 20;
+		oGridRect[10*x +3] = 20;
+	}
 	oColor[0 +0] = 255; oColor[0 +1] = 0; oColor[0 +2] = 0; oColor[0 +3] = 255;
-	oColor[12+0] = 0; oColor[12+1] = 255; oColor[12+2] = 0; oColor[12+3] = 255;
-	oColor[24+0] = 0; oColor[24+1] = 0; oColor[24+2] = 255; oColor[24+3] = 255;
-	oColor[36+0] = 0; oColor[36+1] = 0; oColor[36+2] = 0; oColor[36+3] = 255;
-	oColor[48+0] = 0; oColor[48+1] = 0; oColor[48+2] = 0; oColor[48+3] = 255;
-	oColor[60+0] = 0; oColor[60+1] = 0; oColor[60+2] = 0; oColor[60+3] = 255;
+	oColor[20+0] = 0; oColor[20+1] = 255; oColor[20+2] = 0; oColor[20+3] = 255;
+	oColor[40+0] = 0; oColor[40+1] = 0; oColor[40+2] = 255; oColor[40+3] = 255;
+	oColor[60+0] = 255; oColor[60+1] = 255; oColor[60+2] = 0; oColor[60+3] = 255;
+	oColor[80+0] = 0; oColor[80+1] = 0; oColor[80+2] = 255; oColor[80+3] = 255;
+	oColor[100+0] = 0; oColor[100+1] = 255; oColor[100+2] = 0; oColor[100+3] = 255;
+	for(unsigned int x=0;x<6;++x)
+	{
+		unsigned int k = (x < 4) ? x : 6 - x;
+		oNormCoord[20*x + 0] = (k & 1) ? 1 : 0;
+		oNormCoord[20*x + 1] = (k > 1) ? 1 : 0;
+	}
+	for(int i=0;i<=50;i+=10)
+		oBezierIndex[i +0] = 32;
+	
 	// oCurvesMin[0] = 0;
 	// oCurvesMin[1] = 0;
 	// oCurvesMin[6+0] = 1;
 	// oCurvesMin[6+1] = 0;
 	// oCurvesMin[12+0] = 0;
 	// oCurvesMin[12+1] = 1;
-	oCurvesMin[0] = (0)*2;
-	oCurvesMin[1] = (100)*2;
-	oCurvesMin[6+0] = (0)*2+1;
-	oCurvesMin[6+1] = (100)*2;
-	oCurvesMin[12+0] = (0)*2;
-	oCurvesMin[12+1] = (100)*2+1;
-	
-	uint16_t a=0,b=0;
-	fetchVec2(&atlas, 0, 66, &a, &b);
-	printf("a: %i, b: %i\n", a, b);
-	
-	uint8_t rgba[4];
-	rgba[0] = 0; rgba[1]=0; rgba[2]=0; rgba[3]=0;
-	texture2D(&atlas, 4, rgba, 2, 66);
-	printf("w: %i, h: %i, l: %i, rgba: %i, %i, %i, %i\n", atlas.width, atlas.height, atlas.length, rgba[0], rgba[1], rgba[2], rgba[3]);
+	// oCurvesMin[0 +0] = (0)*2;
+	// oCurvesMin[0 +1] = (100)*2;
+	// oCurvesMin[6 +0] = (0)*2+1;
+	// oCurvesMin[6 +1] = (100)*2;
+	// oCurvesMin[12+0] = (0)*2;
+	// oCurvesMin[12+1] = (100)*2+1;
 
 	glGenBuffers(1, &glyphBuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, glyphBuffer);
-	glBufferData(GL_ARRAY_BUFFER, numGlyphs * 6 * 12, vertexBuf, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, numGlyphs * 6 * 20, vertexBuf, GL_STATIC_DRAW);
 	delete [] vertexBuf;
 	
-	delete [] rawGlyphs.data;
-	delete [] atlas.data;
+	// delete [] rawGlyphs.data;
+	// delete [] atlas.data;
+	
+	// numGlyphs = 1;//rawGlyphs.length / 20; // 20 bytes per glyph
+	// printf("Loading %i glyphs\n", numGlyphs);
+	// 
+	// int16_t *uposition = (int16_t *)rawGlyphs.data;
+	// int16_t *position = (int16_t *)rawGlyphs.data;
+	// uint16_t *curvesMin = (uint16_t *)(rawGlyphs.data + 4);
+	// int16_t *deltaNext = (int16_t *)(rawGlyphs.data + 8);
+	// int16_t *deltaPrev = (int16_t *)(rawGlyphs.data + 12);
+	// uint16_t *color = (uint16_t *)(rawGlyphs.data + 16);
+	// 
+	
+	
+	// uint32_t src = 0, dst = 0;
+	// for(unsigned int i=0; i<numGlyphs; i++)
+	// {
+	// 	if(i > 0)
+	// 	{
+	// 		position[src+0] += position[src-10+0];
+	// 		position[src+1] += position[src-10+1];
+	// 	}
+	// 	
+	// 	for(unsigned int j=0;j<6;++j)
+	// 	{
+	// 		unsigned int k = (j < 4) ? j : 6 - j;
+	// 		
+	// 		// oPosition[dst+0] = position[src+0];
+	// 		// oPosition[dst+1] = position[src+1];
+	// 		// 
+	// 		// if (k == 1) {
+	// 		// 	oPosition[dst+0] += deltaNext[src+0];
+	// 		// 	oPosition[dst+1] += deltaNext[src+1];
+	// 		// } else if (k == 2) {
+	// 		// 	oPosition[dst+0] += deltaPrev[src+0];
+	// 		// 	oPosition[dst+1] += deltaPrev[src+1];
+	// 		// } else if (k == 3) {
+	// 		// 	oPosition[dst+0] += deltaNext[src+0] + deltaPrev[src+0];
+	// 		// 	oPosition[dst+1] += deltaNext[src+1] + deltaPrev[src+1];
+	// 		// }
+	// 		// 
+	// 		// printf("pos (%i, %i)\n", oPosition[dst], oPosition[dst+1]);
+	// 		
+	// 		oCurvesMin[dst+0] = ushortWithFlag(curvesMin[src+0], k & 1);
+	// 		oCurvesMin[dst+1] = ushortWithFlag(curvesMin[src+1], k > 1);
+	// 		printf("csrc: %i, %i, cdst: %i, %i\n", curvesMin[src+0], curvesMin[src+1], oCurvesMin[dst+0], oCurvesMin[dst+1]);
+	// 		// oColor[dst+0]     = color[src+0];
+	// 		// oColor[dst+1]     = color[src+1];
+	// 
+	// 		if (i<10) {
+	// 			//console.log(i, j, oPosition[dst+0], oPosition[dst+1], positions.x[i], positions.y[i]);
+	// 		}
+	// 
+	// 		dst += 6;
+	// 	}
+	// 	
+	// 	src += 10;
+	// }
+	
+	// uint16_t a=0,b=0;
+	// fetchVec2(&atlas, 0, 66, &a, &b);
+	// printf("a: %i, b: %i\n", a, b);
+	// 
+	// uint8_t rgba[4];
+	// rgba[0] = 0; rgba[1]=0; rgba[2]=0; rgba[3]=0;
+	// texture2D(&atlas, 4, rgba, 2, 66);
+	// printf("w: %i, h: %i, l: %i, rgba: %i, %i, %i, %i\n", atlas.width, atlas.height, atlas.length, rgba[0], rgba[1], rgba[2], rgba[3]);
+
 }
 
 double zoom = 0;
@@ -730,22 +819,28 @@ void dobbieRender()
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
 	glEnableVertexAttribArray(3);
-	glVertexAttribPointer(0, 2, GL_SHORT, GL_TRUE, 12, (void*)0);
-	glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_FALSE, 12, (void*)4);
-	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 12, (void*)8);
+	glEnableVertexAttribArray(4);
+	glVertexAttribPointer(0, 2, GL_SHORT, GL_TRUE, 20, (void*)0);
+	glVertexAttribPointer(1, 4, GL_UNSIGNED_SHORT, GL_FALSE, 20, (void*)4);
+	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 20, (void*)12);
+	glVertexAttribPointer(3, 2, GL_UNSIGNED_BYTE, GL_FALSE, 20, (void*)16);
+	glVertexAttribPointer(4, 1, GL_UNSIGNED_SHORT, GL_FALSE, 20, (void*)18);
 	
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, atlasTexId);
-	glUniform1i(uAtlasSampler, 0);
-	glUniform2f(uTexelSize, 1.0/atlas.width, 1.0/atlas.height);
-	glUniform1i(uDebug, 1);
+	glBindTexture(GL_TEXTURE_2D, gridmapTexId);
+	glUniform1i(uGridmapSampler, 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, bezierTexId);
+	glUniform1i(uBeziermapSampler, 1);
+	glUniform2f(uGridmapTexelSize, 1.0/GridmapSize, 1.0/GridmapSize);
+	glUniform2f(uBeziermapTexelSize, 1.0/256.0, 1.0/95.0);
 	
 	float aspect = (768*1.5) / (1024*1.5);
-	float zoomx = 0.05;// std::sin(zoom) + 1.01;
-	float zoomy = 0.05;//std::sin(zoom) + 1.01;
-	zoomx /= 6.0; zoomy /= 6.0;
-	float translateX = 0.429;
-	float translateY = 0.596;
+	float zoomx = std::sin(zoom) + 1.01;
+	float zoomy = std::sin(zoom) + 1.01;
+	zoomx /= 100.0; zoomy /= 100.0;
+	float translateX = 0.4295;
+	float translateY = 0.5965;
 	
 	glUniform2f(uPositionMul, aspect/zoomx, 1/zoomy);
 	glUniform2f(uPositionAdd, aspect * -translateX / zoomx, -translateY / zoomy);
