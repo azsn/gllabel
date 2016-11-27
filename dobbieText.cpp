@@ -144,67 +144,85 @@ void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channe
 	fclose(f);
 }
 
-/*
- * Taking two endpoints A and C, a control point B, and a horizontal line
- * y=Y, find the x values of intersection between the line and the curve.
- * This can also be used to find the y values of intersection if the x and y
- * coordinates of each point are swapped and x=Y. Returns NAN for "no X value."
- * If both X1 and X2 are NAN, the curve does not cross y=Y.
- */
-void bezierIntersectY(glm::vec2 A, glm::vec2 B, glm::vec2 C, float Y, float *X1, float *X2)
-{
-	/*
-	 * Quadratic bezier curves (with two endpoints and one control point)
-	 * are represented by the function
-	 * F(t) = (1-t)^2*A + 2*t*(1-t)*B + t^2*C
-	 * where F is a vector function, A and C are the endpoint vectors, C is
-	 * the control point vector, and 0 <= t <= 1.
-	 *
-	 * Solving the bezier function for t gives:
-	 * t = (A - B [+-] sqrt(y*a + B^2 - A*C))/a
-	 * where a = A - 2B + C.
-	 * http://www.wolframalpha.com/input/?i=y+%3D+(1-t)%5E2a+%2B+2t(1-t)*b+%2B+t%5E2*c+solve+for+t
-	 
-	 * bezierIntersectY finds the intersection of a quadratic bezier curve with
-	 * a horizontal line (y=Y). Since the y value is known, it can be used
-	 * to solve for t, the time of intersection. t then can be used to solve
-	 * for x.
-	 */
-	
-	// Parts of the bezier function solved for t
-	float a = A.y - 2*B.y + C.y;
-
-	// In the condition that a=0, the standard formulas won't work
-	if(a == 0)
-	{
-		float t = (2*B.y - C.y - Y) / (2*(B.y-C.y));
-		*X1 = (t > 1 || t < 0 || isnan(t)) ? NAN : (1-t)*(1-t)*A.x + 2*t*(1-t)*B.x + t*t*C.x;
-		*X2 = NAN;
-		return;
-	}
-	
-	float root = sqrt(Y*a + B.y*B.y - A.y*C.y);
-
-	// Solving for t requires +-root. Get a result for both values.
-	// If a value of t does not fall in the range of 0<=t<=1, then return NAN. 
-	float t = (A.y - B.y + root) / a;
-	*X1 = (t > 1 || t < 0 || isnan(t)) ? NAN : (1-t)*(1-t)*A.x + 2*t*(1-t)*B.x + t*t*C.x;
-	
-	t = (A.y - B.y - root) / a;
-	*X2 = (t > 1 || t < 0 || isnan(t)) ? NAN : (1-t)*(1-t)*A.x + 2*t*(1-t)*B.x + t*t*C.x;
-}
-
-void bezierIntersectX(glm::vec2 A, glm::vec2 B, glm::vec2 C, float X, float *Y1, float *Y2)
-{
-	bezierIntersectY(glm::vec2(A.y, A.x), glm::vec2(B.y, B.x), glm::vec2(C.y, C.x), X, Y1, Y2);
-}
-
 struct Bezier
 {
 	glm::vec2 e0;
 	glm::vec2 e1;
 	glm::vec2 c; // control point
 };
+
+inline bool almostEqual(float a, float b)
+{
+	return std::fabs(a-b) < 1e-5;
+}
+
+/*
+ * Taking a quadratic bezier curve and a horizontal line y=Y, finds the x
+ * values of intersection of the line and the curve. Returns 0, 1, or 2,
+ * depending on how many intersections were found, and outX is filled with
+ * that many x values of intersection.
+ *
+ * Quadratic bezier curves are represented by the function
+ * F(t) = (1-t)^2*A + 2*t*(1-t)*B + t^2*C
+ * where F is a vector function, A and C are the endpoint vectors, C is
+ * the control point vector, and 0 <= t <= 1.
+ * Solving the bezier function for t gives:
+ * t = (A - B [+-] sqrt(y*a + B^2 - A*C))/a , where  a = A - 2B + C.
+ * http://www.wolframalpha.com/input/?i=y+%3D+(1-t)%5E2a+%2B+2t(1-t)*b+%2B+t%5E2*c+solve+for+t
+ */
+int bezierIntersectHorz(Bezier *curve, glm::vec2 *outX, float Y)
+{
+	glm::vec2 A = curve->e0;
+	glm::vec2 B = curve->c;
+	glm::vec2 C = curve->e1;
+	int i = 0;
+
+#define T_VALID(t) ((t) <= 1 && (t) >= 0)
+#define X_FROM_T(t) ((1-(t))*(1-(t))*curve->e0.x + 2*(t)*(1-(t))*curve->c.x + (t)*(t)*curve->e1.x)
+
+	// Parts of the bezier function solved for t
+	float a = curve->e0.y - 2*curve->c.y + curve->e1.y;
+
+	// In the condition that a=0, the standard formulas won't work
+	if(almostEqual(a, 0))
+	{
+		float t = (2*B.y - C.y - Y) / (2*(B.y-C.y));
+		if(T_VALID(t))
+			(*outX)[i++] = X_FROM_T(t);
+		return i;
+	}
+	
+	float sqrtTerm = sqrt(Y*a + B.y*B.y - A.y*C.y);
+	
+	float t = (A.y - B.y + sqrtTerm) / a;
+	if(T_VALID(t))
+		(*outX)[i++] = X_FROM_T(t);
+	
+	t = (A.y - B.y - sqrtTerm) / a;
+	if(T_VALID(t))
+		(*outX)[i++] = X_FROM_T(t);
+
+	return i;
+
+#undef X_FROM_T
+#undef T_VALID
+}
+
+/*
+ * Same as bezierIntersectHorz, except finds the y values of an intersection
+ * with the vertical line x=X.
+ */
+int bezierIntersectVert(Bezier *curve, glm::vec2 *outY, float X)
+{
+	Bezier inverse = {
+		glm::vec2(curve->e0.y, curve->e0.x),
+		glm::vec2(curve->e1.y, curve->e1.x),
+		glm::vec2(curve->c.y, curve->c.x)
+	};
+	return bezierIntersectHorz(&inverse, outY, X);
+}
+
+
 
 struct OutlineDecomposeState
 {
@@ -291,7 +309,6 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 	funcs.delta = 0;
 	
 	int suc = FT_Outline_Decompose(outline, &funcs, &state);
-	printf("suc: %i\n", suc);
 	if(suc == 0)
 		return curves;
 	else
@@ -354,41 +371,31 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
 		
 		for(size_t j=0; j<=gridWidth; ++j)
 		{
-			float y1, y2;
-			bezierIntersectX(curves[i].e0, curves[i].c, curves[i].e1, j * width / gridWidth, &y1, &y2);
-
-			uint8_t y1i = gridHeight - (uint8_t)glm::clamp((signed long)(y1 * gridHeight / height), 0L, (signed long)gridHeight-1) - 1;
-			uint8_t y2i = gridHeight - (uint8_t)glm::clamp((signed long)(y2 * gridHeight / height), 0L, (signed long)gridHeight-1) - 1;
-			uint8_t x1i = (size_t)std::max((signed long)j-1, (signed long)0);
-			uint8_t x2i = (size_t)std::min((signed long)j, (signed long)gridWidth-1);
+			glm::vec2 intY;
+			int num = bezierIntersectVert(&curves[i], &intY, j * width / gridWidth);
 			
-			if(!isnan(y1)) { // If an intersection did not occur, val is NAN
-				SETGRID(x1i, y1i);
-				SETGRID(x2i, y1i);
-			}
-			if(!isnan(y2)) {
-				SETGRID(x1i, y2i);
-				SETGRID(x2i, y2i);
+			for(int z=0;z<num;++z)
+			{
+				uint8_t y = gridHeight - (uint8_t)glm::clamp((signed long)(intY[z] * gridHeight / height), 0L, (signed long)gridHeight-1) - 1;
+				uint8_t x1 = (size_t)std::max((signed long)j-1, (signed long)0);
+				uint8_t x2 = (size_t)std::min((signed long)j, (signed long)gridWidth-1);
+				SETGRID(x1, y);
+				SETGRID(x2, y);
 			}
 		}
 		
 		for(size_t j=0; j<=gridHeight; ++j)
 		{
-			float x1, x2;
-			bezierIntersectY(curves[i].e0, curves[i].c, curves[i].e1, j * height / gridHeight, &x1, &x2);
+			glm::vec2 intX;
+			int num = bezierIntersectHorz(&curves[i], &intX, j * height / gridHeight);
 			
-			uint8_t x1i = (uint8_t)glm::clamp((signed long)(x1 * gridWidth / width), 0L, (signed long)gridWidth-1);
-			uint8_t x2i = (uint8_t)glm::clamp((signed long)(x2 * gridWidth / width), 0L, (signed long)gridWidth-1);
-			uint8_t y1i = gridHeight - (size_t)std::max((signed long)j-1, (signed long)0) - 1;
-			uint8_t y2i = gridHeight - (size_t)std::min((signed long)j, (signed long)gridHeight-1) - 1;
-			
-			if(!isnan(x1)) {
-				SETGRID(x1i, y1i);
-				SETGRID(x1i, y2i);
-			}
-			if(!isnan(x2)) {
-				SETGRID(x2i, y1i);
-				SETGRID(x2i, y2i);
+			for(int z=0;z<num;++z)
+			{
+				uint8_t x = (uint8_t)glm::clamp((signed long)(intX[z] * gridWidth / width), 0L, (signed long)gridWidth-1);
+				uint8_t y1 = gridHeight - (size_t)std::max((signed long)j-1, (signed long)0) - 1;
+				uint8_t y2 = gridHeight - (size_t)std::min((signed long)j, (signed long)gridHeight-1) - 1;
+				SETGRID(x, y1);
+				SETGRID(x, y2);
 			}
 		}
 		#undef SETGRID
@@ -406,12 +413,10 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
 		float Y = i + 0.5; // Test midpoints of cells
 		for(size_t j=0; j<curves.size(); ++j)
 		{
-			float x1, x2;
-			bezierIntersectY(curves[j].e0, curves[j].c, curves[j].e1, Y * height / gridHeight, &x1, &x2);
-			if(!isnan(x1))
-				intersections.push_back(x1 * gridWidth / width);
-			if(!isnan(x2))
-				intersections.push_back(x2 * gridWidth / width);
+			glm::vec2 intX;
+			int num = bezierIntersectHorz(&curves[j], &intX, Y * height / gridHeight);
+			for(int z=0;z<num;++z)
+				intersections.push_back(intX[z] * gridWidth / width);
 		}
 	
 		std::sort(intersections.begin(), intersections.end());
@@ -445,7 +450,6 @@ bool calculateGridForGlyph(FT_Face face, uint32_t point, uint8_t gridHeight,
 	
 	*curvesOut = curves;
 	*gridOut = grid;
-	printf("done\n");
 	return true;
 }
 
