@@ -144,17 +144,6 @@ void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channe
 	fclose(f);
 }
 
-unsigned short ushortWithFlag(unsigned short x, unsigned short flag)
-{
-	return x*2 + (flag ? 1:0);
-}
-
-void lineIntersectY(glm::vec2 A, glm::vec2 B, float Y, float *X)
-{
-	float t = (Y - A.y) / B.y;
-	*X = A.x + B.x*t;
-}
-
 /*
  * Taking two endpoints A and C, a control point B, and a horizontal line
  * y=Y, find the x values of intersection between the line and the curve.
@@ -208,30 +197,6 @@ void bezierIntersectY(glm::vec2 A, glm::vec2 B, glm::vec2 C, float Y, float *X1,
 void bezierIntersectX(glm::vec2 A, glm::vec2 B, glm::vec2 C, float X, float *Y1, float *Y2)
 {
 	bezierIntersectY(glm::vec2(A.y, A.x), glm::vec2(B.y, B.x), glm::vec2(C.y, C.x), X, Y1, Y2);
-}
-
-/*
- * Returns true if the given bezier curve is parallel to and along y=Y.
- * Also returns maximum and minimum x values along Y, if bezier is along Y.
- * Swap all Ys with Xs and this becomes bezierAlongX.
- */
-bool bezierAlongY(glm::vec2 A, glm::vec2 B, glm::vec2 C, float Y, float *minX, float *maxX)
-{
-	if((A.y != B.y) || (A.y != C.y) || (A.y != Y))
-		return false;
-	
-	*minX = glm::min(A.x, B.x);
-	*maxX = glm::max(A.x, B.x);
-	
-	if(B.x > *maxX)
-	{
-		// TODO, also B.x < minX
-		// This probably isn't really necessary, since no font curve is going to have
-		// a straight line with a control point, much less a control point outside
-		// the bounds of the endpoints.
-	}
-	
-	return true;
 }
 
 struct Bezier
@@ -331,92 +296,6 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 		return curves;
 	else
 		return std::vector<Bezier>();
-	
-	// printf("decompose success: %i\n", suc);
-	
-	
-	
-	// Each contour represents one continuous line made of multiple beziers.
-	// The points re-use endpoints as the starting point of the next segment,
-	// so its important to set the next curve's e0 to the current curve's e1.
-	for(short k=0; k<outline->n_contours; ++k)
-	{
-		Bezier currentBezier;
-		short bezierPartIndex = 0;
-		size_t startCurve = curves.size();
-		printf("> Contour %i\n", k);
-		for(short i=(k==0)?0:outline->contours[k-1]+1; i<=outline->contours[k]; ++i)
-		{
-			glm::vec2 p(outline->points[i].x-metricsX, outline->points[i].y-metricsY);
-			
-		// I know I know, macros are evil. Shhh.
-		#define CHECK_BIT(var, pos) ((var) & (1<<(pos)))
-			int type = CHECK_BIT(outline->tags[i], 0) ? 0 : 1; // 0 if endpoint, 1 if control point
-			if(type == 1)
-				type += CHECK_BIT(outline->tags[i], 1) ? 1 : 0; // 1 if regular control point, 2 if third-order control point
-		#undef CHECK_BIT
-			
-			printf("  Point (%i, %i) type %i\n", (int)p.x, (int)p.y, type);
-
-			
-			// TODO: Third order control points (cubic beziers) are unsupported.
-			// Eventually, convert cubic bezier into two quadratics.
-			if(type == 2)
-				return std::vector<Bezier>();
-			
-			if(bezierPartIndex == 0 && type == 0) {
-				currentBezier.e0 = p;
-				bezierPartIndex++;
-			} else if(bezierPartIndex == 0 && type == 1) {
-				// printf("ERR1\n");
-				return std::vector<Bezier>(); // error
-			} else if(bezierPartIndex == 1 && type == 0) {
-				currentBezier.c = currentBezier.e0;
-				currentBezier.e1 = p;
-				curves.push_back(currentBezier);
-				// printf("(%.0f, %.0f) to (%.0f, %.0f)\n", currentBezier.e0.x, currentBezier.e0.y, currentBezier.e1.x, currentBezier.e1.y);
-				currentBezier.e0 = currentBezier.e1;
-			} else if(bezierPartIndex == 1 && type == 1) {
-				currentBezier.c = p;
-				bezierPartIndex++;
-			} else if(bezierPartIndex == 2 && type == 0) {
-				currentBezier.e1 = p;
-				curves.push_back(currentBezier);
-				// printf("(%.0f, %.0f) to (%.0f, %.0f) through (%.0f, %.0f)\n", currentBezier.e0.x, currentBezier.e0.y, currentBezier.e1.x, currentBezier.e1.y, currentBezier.c.x, currentBezier.c.y);
-				currentBezier.e0 = currentBezier.e1;
-				bezierPartIndex = 1;
-				
-			// I'm not sure why type ever equals 1 when it's part index 2
-			// since that would imply two control points in a row even though
-			// they're not cubic curves, but sometimes it happens. It seems
-			// that they should just be treated as not control points.
-			} else if(bezierPartIndex == 2 && type == 1) {
-				currentBezier.e1 = p;
-				curves.push_back(currentBezier);
-				currentBezier.e0 = currentBezier.e1;
-				bezierPartIndex = 1;
-			} else {
-				// printf("ERR3\n");
-				return std::vector<Bezier>(); // error
-			}
-		}
-		
-		size_t endCurve = curves.size();
-		size_t numCurves = endCurve - startCurve;
-		
-		// Connect the final endpoint of the contour to the first startpoint
-		// (if it isn't already connected)
-		if(numCurves > 0 && curves[startCurve].e0 != curves[endCurve-1].e1)
-		{
-			Bezier final;
-			final.e0 = curves[endCurve-1].e1;
-			final.c = final.e0;
-			final.e1 = curves[startCurve].e0;
-			curves.push_back(final);
-		}
-	}
-
-	return curves;
 }
 
 /*
@@ -745,7 +624,7 @@ void initDobbie()
     std::chrono::duration<double> elapsed_seconds = end-start;
 	printf("getGlyphCurves done, %fms\n", elapsed_seconds.count()*1000);
 	
-	glyphProgram = loadShaderProgram("../shaders/glyphvs.glsl", "../shaders/glyphfs.glsl");
+	glyphProgram = loadShaderProgram("../../gllabel/glyphvs.glsl", "../../gllabel/glyphfs.glsl");
 	
 	uGridmapSampler = glGetUniformLocation(glyphProgram, "uGridmapSampler");
 	uBeziermapSampler = glGetUniformLocation(glyphProgram, "uBeziermapSampler");
@@ -755,95 +634,6 @@ void initDobbie()
 	uPositionAdd = glGetUniformLocation(glyphProgram, "uPositionAdd");
 	
 	numGlyphs = 1;
-	
-	
-	
-	// delete [] rawGlyphs.data;
-	// delete [] atlas.data;
-	
-	// numGlyphs = 1;//rawGlyphs.length / 20; // 20 bytes per glyph
-	// printf("Loading %i glyphs\n", numGlyphs);
-	// 
-	// int16_t *uposition = (int16_t *)rawGlyphs.data;
-	// int16_t *position = (int16_t *)rawGlyphs.data;
-	// uint16_t *curvesMin = (uint16_t *)(rawGlyphs.data + 4);
-	// int16_t *deltaNext = (int16_t *)(rawGlyphs.data + 8);
-	// int16_t *deltaPrev = (int16_t *)(rawGlyphs.data + 12);
-	// uint16_t *color = (uint16_t *)(rawGlyphs.data + 16);
-	// 
-	
-	
-	// uint32_t src = 0, dst = 0;
-	// for(unsigned int i=0; i<numGlyphs; i++)
-	// {
-	// 	if(i > 0)
-	// 	{
-	// 		position[src+0] += position[src-10+0];
-	// 		position[src+1] += position[src-10+1];
-	// 	}
-	// 	
-	// 	for(unsigned int j=0;j<6;++j)
-	// 	{
-	// 		unsigned int k = (j < 4) ? j : 6 - j;
-	// 		
-	// 		// oPosition[dst+0] = position[src+0];
-	// 		// oPosition[dst+1] = position[src+1];
-	// 		// 
-	// 		// if (k == 1) {
-	// 		// 	oPosition[dst+0] += deltaNext[src+0];
-	// 		// 	oPosition[dst+1] += deltaNext[src+1];
-	// 		// } else if (k == 2) {
-	// 		// 	oPosition[dst+0] += deltaPrev[src+0];
-	// 		// 	oPosition[dst+1] += deltaPrev[src+1];
-	// 		// } else if (k == 3) {
-	// 		// 	oPosition[dst+0] += deltaNext[src+0] + deltaPrev[src+0];
-	// 		// 	oPosition[dst+1] += deltaNext[src+1] + deltaPrev[src+1];
-	// 		// }
-	// 		// 
-	// 		// printf("pos (%i, %i)\n", oPosition[dst], oPosition[dst+1]);
-	// 		
-	// 		oCurvesMin[dst+0] = ushortWithFlag(curvesMin[src+0], k & 1);
-	// 		oCurvesMin[dst+1] = ushortWithFlag(curvesMin[src+1], k > 1);
-	// 		printf("csrc: %i, %i, cdst: %i, %i\n", curvesMin[src+0], curvesMin[src+1], oCurvesMin[dst+0], oCurvesMin[dst+1]);
-	// 		// oColor[dst+0]     = color[src+0];
-	// 		// oColor[dst+1]     = color[src+1];
-	// 
-	// 		if (i<10) {
-	// 			//console.log(i, j, oPosition[dst+0], oPosition[dst+1], positions.x[i], positions.y[i]);
-	// 		}
-	// 
-	// 		dst += 6;
-	// 	}
-	// 	
-	// 	src += 10;
-	// }
-	
-	// uint16_t a=0,b=0;
-	// fetchVec2(&atlas, 0, 66, &a, &b);
-	// printf("a: %i, b: %i\n", a, b);
-	// 
-	// uint8_t rgba[4];
-	// rgba[0] = 0; rgba[1]=0; rgba[2]=0; rgba[3]=0;
-	// texture2D(&atlas, 4, rgba, 2, 66);
-	// printf("w: %i, h: %i, l: %i, rgba: %i, %i, %i, %i\n", atlas.width, atlas.height, atlas.length, rgba[0], rgba[1], rgba[2], rgba[3]);
-	
-	bmp at;
-	loadBMP("gridmap.bmp", &at);
-	// loadBMP("../dobbie/atlas.bmp", &at);
-	
-	for(uint32_t i=0;i<at.length;i+=4)
-	{
-		// if(at.data[i+2] < at.data[i+3])
-			// printf("at %i, %i\n", at.data[i+2], at.data[i+3]);
-		uint8_t val = (at.data[i] > 250 || at.data[i+1] > 250 || at.data[i+2] > 250 || at.data[i+3] > 250) ? 255 : 0;
-		// uint8_t val = (at.data[i+2] < at.data[i+3]) ? 255 : 0;
-		at.data[i+0] = val;
-		at.data[i+1] = val;
-		at.data[i+2] = val;
-		at.data[i+3] = val;
-	}
-	
-	writeBMP("dobbieatlasmask.bmp", at.width, at.height, 4, at.data);
 }
 
 double zoom = 0;
