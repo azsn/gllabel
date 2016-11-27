@@ -33,15 +33,7 @@
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
 
-struct bmp
-{
-	GLuint width, height, length;
-	uint8_t *data; // rgba;
-};
-
 static GLuint glyphProgram = 0;
-static bmp atlas = {0};
-static bmp rawGlyphs = {0};
 static GLuint atlasTexId = 0;
 static GLuint glyphBuffer = 0;
 static GLuint atlasBuffer = 0;
@@ -57,92 +49,6 @@ static GLuint uPositionAdd = 0;
 static unsigned int numGlyphs = 0;
 
 extern GLuint loadShaderProgram(const char *vertexShaderPath, const char *fragmentShaderPath);
-
-
-bool loadBMP(const char *path, bmp *s)
-{
-	FILE *f = fopen(path, "rb");
-	if(!f)
-		return false;
-	
-	fseek(f, 18, SEEK_SET);
-	
-	unsigned char bytes[4];
-	
-	fread(bytes, 4, 1, f);
-	int width = bytes[0] | (bytes[1]<<8) | (bytes[2]<<16) | (bytes[3]<<24);
-	
-	fread(bytes, 4, 1, f);
-	int height = bytes[0] | (bytes[1]<<8) | (bytes[2]<<16) | (bytes[3]<<24);
-	
-	s->width = width;
-	s->height = height;
-	
-	fseek(f, 0, SEEK_END);
-	s->length = ftell(f)-54;
-	
-	fseek(f, 54, SEEK_SET);
-	
-	s->data = new uint8_t[s->length];
-	fread(s->data, s->length, 1, f);
-	
-	fclose(f);
-	
-	
-	return true;
-}
-
-
-#pragma pack(push, 1)
-struct bitmapdata
-{
-	char magic[2];
-	uint32_t size;
-	uint16_t res1;
-	uint16_t res2;
-	uint32_t offset;
-	
-	uint32_t biSize;
-	uint32_t width;
-	uint32_t height;
-	uint16_t planes;
-	uint16_t bitCount;
-	uint32_t compression;
-	uint32_t imageSizeBytes;
-	uint32_t xpelsPerMeter;
-	uint32_t ypelsPerMeter;
-	uint32_t clrUsed;
-	uint32_t clrImportant;
-};
-#pragma pack(pop)
-
-void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
-{
-	FILE *f = fopen(path, "wb");
-	
-	bitmapdata head;
-	head.magic[0] = 'B';
-	head.magic[1] = 'M';
-	head.size = sizeof(bitmapdata) + width*height*channels;
-	head.res1 = 0;
-	head.res2 = 0;
-	head.offset = sizeof(bitmapdata);
-	head.biSize = 40;
-	head.width = width;
-	head.height = height;
-	head.planes = 1;
-	head.bitCount = 8*channels;
-	head.compression = 0;
-	head.imageSizeBytes = width*height*channels;
-	head.xpelsPerMeter = 0;
-	head.ypelsPerMeter = 0;
-	head.clrUsed = 0;
-	head.clrImportant = 0;
-	
-	fwrite(&head, sizeof(head), 1, f);
-	fwrite(data, head.imageSizeBytes, 1, f);
-	fclose(f);
-}
 
 struct Bezier
 {
@@ -308,11 +214,9 @@ std::vector<Bezier> getCurvesForOutline(FT_Outline *outline)
 	funcs.shift = 0;
 	funcs.delta = 0;
 	
-	int suc = FT_Outline_Decompose(outline, &funcs, &state);
-	if(suc == 0)
+	if(FT_Outline_Decompose(outline, &funcs, &state) == 0)
 		return curves;
-	else
-		return std::vector<Bezier>();
+	return std::vector<Bezier>();
 }
 
 /*
@@ -575,6 +479,7 @@ void getGlyphCurves()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	GridmapSize = gridmapWidth;
+	delete [] gridmap;
 	
 	glGenTextures(1, &bezierTexId);
 	glBindTexture(GL_TEXTURE_2D, bezierTexId);
@@ -583,39 +488,10 @@ void getGlyphCurves()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	
-	writeBMP("gridmap.bmp", gridmapWidth, gridmapWidth, 4, gridmap);
-	
 	delete [] beziermap;
-	delete [] gridmap;
 	
 	FT_Done_Face(face);
-	
 	FT_Done_FreeType(ft);
-	// printf("Freetype success\n");
-}
-
-void texture2D(bmp *tex, uint8_t channels, uint8_t *out, uint32_t x, uint32_t y)
-{
-	uint32_t index = ((tex->height-y-1) * tex->width + x) * channels;
-	printf("index: %i\n", index);
-	if(index+channels >= tex->length)
-		return;
-	for(uint8_t i=0; i<channels; ++i)
-		out[i] = tex->data[index+i];
-}
-
-uint16_t ushortFromVec2(uint8_t x, uint8_t y)
-{
-	return y | x << 8;
-}
-
-void fetchVec2(bmp *tex, uint32_t x, uint32_t y, uint16_t *a, uint16_t *b)
-{
-	uint8_t out[4];
-	texture2D(tex, 4, out, x, y);
-	*a = ushortFromVec2(out[0], out[1]);
-	*b = ushortFromVec2(out[2], out[3]);
 }
 
 void initDobbie()
@@ -707,7 +583,6 @@ void dobbieRender()
 	glBindBuffer(GL_ARRAY_BUFFER, glyphBuffer);
 	glBufferData(GL_ARRAY_BUFFER, numGlyphs * 6 * 20, vertexBuf, GL_STREAM_DRAW);
 	delete [] vertexBuf;
-	
 	
 	zoom += 0.01;
 	
