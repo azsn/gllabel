@@ -10,7 +10,6 @@ GLLabel::GLLabel()
 GLLabel::GLLabel(std::string text)
 : x(0), y(0), horzAlign(GLFontAlign::Start), vertAlign(GLFontAlign::Start), showingCursor(false)
 {
-	this->cache = GLFontCache::GetFontCache();
 	this->SetText(text);
 }
 
@@ -21,7 +20,7 @@ GLLabel::~GLLabel()
 
 void GLLabel::SetText(std::string text)
 {
-	this->glyphs.clear();
+	this->verts.clear();
 	this->AppendText(text);
 }
 
@@ -55,6 +54,11 @@ void GLLabel::AppendText(std::string text)
 }
 
 void GLLabel::Render(float time)
+{
+	
+}
+
+uint32_t GLLabel::LoadCodepointRange(FT_Face face, uint32_t start, uint32_t length)
 {
 	
 }
