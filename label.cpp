@@ -1,39 +1,60 @@
 #include "label.hpp"
 #include <set>
+#include <fstream>
 
 #define sq(x) ((x)*(x))
 
 static char32_t readNextChar(const char **p, size_t *datalen);
+static GLuint loadShaderProgram(const char *vertexShaderPath, const char *fragmentShaderPath);
 
-static const uint8_t kGridMaxSize = 8; // Grids can be smaller if necessary
+std::shared_ptr<GLFontManager> GLFontManager::singleton = nullptr;
+
+static const uint8_t kGridMaxSize = 20; // Grids can be smaller if necessary
 static const uint16_t kGridAtlasSize = 256; // Fits exactly 1024 8x8 grids
-static const uint16_t kBezierAtlasSize = 512; // Fits around 1024 glyphs +- a few
+static const uint16_t kBezierAtlasSize = 1024; // Fits around 1024 glyphs +- a few
 static const uint8_t kAtlasChannels = 4; // Must be 4 (RGBA), otherwise code breaks
 
 GLLabel::GLLabel()
-: GLLabel("")
+: pos(0,0), scale(1,1), appendOffset(0,0),
+horzAlign(GLLabel::Align::Start),vertAlign(GLLabel::Align::Start),
+showingCaret(false)
 {
+	this->lastColor = {0,0,0,255};
+	this->manager = GLFontManager::GetFontManager();
+	this->lastFace = this->manager->GetDefaultFont();
+	this->manager->LoadASCII(this->lastFace);
+	
+	glGenBuffers(1, &this->vertBuffer);
 }
 
-GLLabel::GLLabel(std::string text)
-: x(0), y(0), horzAlign(GLLabel::Align::Start), vertAlign(GLLabel::Align::Start), showingCursor(false)
+GLLabel::GLLabel(std::string text) : GLLabel()
 {
 	this->SetText(text);
 }
 
 GLLabel::~GLLabel()
 {
-	
+	glDeleteBuffers(1, &this->vertBuffer);
 }
 
-void GLLabel::SetText(std::string text)
+void GLLabel::SetText(std::string text, FT_Face font, Color color)
 {
 	this->verts.clear();
-	this->AppendText(text);
+	this->AppendText(text, font, color);
 }
 
-void GLLabel::AppendText(std::string text)
+void GLLabel::AppendText(std::string text, FT_Face face, Color color)
 {
+	// GlyphVertex q[3];
+	// q[0].pos = glm::vec2(0, 10000);
+	// q[1].pos = glm::vec2(10000,10000);
+	// q[2].pos = glm::vec2(0,0);
+	// this->verts.push_back(q[0]);
+	// this->verts.push_back(q[1]);
+	// this->verts.push_back(q[2]);
+	
+	size_t prevNumVerts = this->verts.size();
+	
 	const char *cstr = text.c_str();
 	size_t cstrLen = text.size();
 	while(cstr[0] != '\0')
@@ -45,34 +66,164 @@ void GLLabel::AppendText(std::string text)
 			printf("GLLabel::AppendText: Unable to parse UTF-8 string.");
 			return;
 		}
+
+		if(c == '\r')
+			continue;
 		
-		// switch(c)
-		// {
-		// case '\n':
-		// 	this->glyphs.push_back(nullptr);
-		// 	break;
-		// case '\r': break; // Ignore \r
-		// default:
-		// 	GLGlyph *glyph = this->cache->GetGlpyhForCodePoint(c, 12);
-		// 	if(glyph)
-		// 		this->glyphs.push_back(glyph);
-		// 	break;
-		// }
+		if(c == '\n')
+		{
+			this->appendOffset.x = 0;
+			this->appendOffset.y = face->height;
+			continue;
+		}
+		
+		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, c);
+		
+		GlyphVertex v[6];
+		v[0].pos = this->appendOffset + glm::vec2(0, glyph->size.y);
+		v[1].pos = this->appendOffset + glm::vec2(glyph->size.x, glyph->size.y);
+		v[2].pos = this->appendOffset;
+		v[3].pos = this->appendOffset + glm::vec2(glyph->size.x, 0);
+		v[4].pos = this->appendOffset;
+		v[5].pos = this->appendOffset + glm::vec2(glyph->size.x, glyph->size.y);
+		
+		for(unsigned int i=0;i<6;++i)
+		{
+			v[i].color = color;
+			
+			// Encode both the bezier position and the norm coord into one int
+			// This theoretically could overflow, but the atlas position will
+			// never be over half the size of a uint16, so it's fine. 
+			unsigned int k = (i < 4) ? i : 6 - i;
+			v[i].data[0] = glyph->bezierAtlasPos[0]*2 + ((k & 1) ? 1 : 0);
+			v[i].data[1] = glyph->bezierAtlasPos[1]*2 + ((k > 1) ? 1 : 0);
+			this->verts.push_back(v[i]);
+		}
+		
+		this->appendOffset.x += glyph->shift;
 	}
+	
+	size_t deltaVerts = this->verts.size() - prevNumVerts;
+	if(deltaVerts == 0)
+		return;
+	
+	// TODO: Only upload recent verts
+	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
+	glBufferData(GL_ARRAY_BUFFER, this->verts.size() * sizeof(GlyphVertex), &this->verts[0], GL_DYNAMIC_DRAW);
+}
+
+void GLLabel::SetHorzAlignment(Align horzAlign)
+{	
+}
+void GLLabel::SetVertAlignment(Align vertAlign)
+{
 }
 
 void GLLabel::Render(float time)
 {
+	this->manager->UploadAtlases();
+	this->manager->UseGlyphShader();
+	
+	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
+	glEnable(GL_BLEND);
+	
+	// printf("i: %i, k %i\n", offsetof(GLLabel::GlyphVertex, pos), sizeof(GLLabel::GlyphVertex));
+	
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, pos));
+	glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
+	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, color));
+	
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, this->manager->atlases[0].gridAtlasId);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, this->manager->atlases[0].bezierAtlasId);
+	
+	this->manager->SetShaderPosScale(glm::vec4(0,0,1/5000.0,1/5000.0));
+	
+	glDrawArrays(GL_TRIANGLES, 0, this->verts.size());
+	
+	// float aspect = (768*1.5) / (1024*1.5);
+	// // float zoomx = std::sin(zoom) + 1.01;
+	// // float zoomy = std::sin(zoom) + 1.01;
+	// float zoomx = 1.01;
+	// float zoomy = 1.01;
+	// zoomx /= 100.0; zoomy /= 100.0;
+	// float translateX = 0.4295;
+	// float translateY = 0.5965;
+	// 
+	// glUniform2f(uPositionMul, aspect/zoomx, 1/zoomy);
+	// glUniform2f(uPositionAdd, aspect * -translateX / zoomx, -translateY / zoomy);
+}
+
+void GLLabel::RenderAlso(float time)
+{
 	
 }
 
-GLLabel::AtlasGroup * GLLabel::GetOpenAtlasGroup()
+
+
+
+GLFontManager::GLFontManager()
+{
+	if(FT_Init_FreeType(&this->ft) != FT_Err_Ok)
+		printf("Failed to load freetype\n");
+	
+	this->glyphShader = loadShaderProgram("../../gllabel/glyphvs.glsl", "../../gllabel/glyphfs.glsl");
+	this->uGridAtlas = glGetUniformLocation(glyphShader, "uGridAtlas");
+	this->uBezierAtlas = glGetUniformLocation(glyphShader, "uBezierAtlas");
+	this->uGridTexel = glGetUniformLocation(glyphShader, "uGridTexel");
+	this->uBezierTexel = glGetUniformLocation(glyphShader, "uBezierTexel");
+	this->uPosScale = glGetUniformLocation(glyphShader, "uPosScale");
+	
+	glUniform1i(this->uGridAtlas, 0);
+	glUniform1i(this->uBezierAtlas, 1);
+	glUniform2f(this->uGridTexel, 1.0/kGridAtlasSize, 1.0/kGridAtlasSize);
+	glUniform2f(this->uBezierTexel, 1.0/kBezierAtlasSize, 1.0/kBezierAtlasSize);
+	glUniform4f(this->uPosScale, 0, 0, 1, 1);
+}
+
+GLFontManager::~GLFontManager()
+{
+	glDeleteProgram(this->glyphShader);
+	FT_Done_FreeType(this->ft);
+}
+
+std::shared_ptr<GLFontManager> GLFontManager::GetFontManager()
+{
+	if(!GLFontManager::singleton)
+		GLFontManager::singleton = std::shared_ptr<GLFontManager>(new GLFontManager());
+	return GLFontManager::singleton;
+}
+
+// TODO: FT_Faces don't get destroyed... FT_Done_FreeType cleans them eventually,
+// but maybe use shared pointers?
+FT_Face GLFontManager::GetFontFromPath(std::string fontPath)
+{
+	FT_Face face;
+	return FT_New_Face(this->ft, fontPath.c_str(), 0, &face) ? nullptr : face;
+}
+FT_Face GLFontManager::GetFontFromName(std::string fontName)
+{
+	std::string path; // TODO
+	return GLFontManager::GetFontFromPath(path);
+}
+FT_Face GLFontManager::GetDefaultFont()
+{
+	// TODO
+	return GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttf");
+}
+
+GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 {
 	if(this->atlases.size() == 0 || this->atlases[this->atlases.size()-1].full)
 	{
 		AtlasGroup group = {0};
 		group.bezierAtlas = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
 		group.gridAtlas = new uint8_t[sq(kGridAtlasSize)*kAtlasChannels]();
+		group.uploaded = true;
 		
 		glGenTextures(1, &group.bezierAtlasId);
 		glBindTexture(GL_TEXTURE_2D, group.bezierAtlasId);
@@ -238,7 +389,7 @@ static std::vector<Bezier> GetCurvesForOutline(FT_Outline *outline)
 		return -1;
 	};
 
-	if(FT_Outline_Decompose(outline, &funcs, NULL) == 0)
+	if(FT_Outline_Decompose(outline, &funcs, &state) == 0)
 		return curves;
 	return std::vector<Bezier>();
 }
@@ -255,6 +406,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 	gridHeight = kGridMaxSize;
 	
 	std::vector<std::set<uint16_t>> grid;
+	grid.resize(gridWidth * gridHeight);
 	
 	// For each curve, for each vertical and horizontal grid line
 	// (including edges), determine where the curve intersects. Each
@@ -270,7 +422,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 		// If a curve intersects no grid lines, it won't be included. So
 		// make sure the cell the the curve starts in is included
 		SETGRID(std::min((unsigned long)(curves[i].e0.x * gridWidth / glyphWidth), (unsigned long)gridWidth-1), std::min((unsigned long)(curves[i].e0.y * gridHeight / glyphHeight), (unsigned long)gridHeight-1));
-		
+
 		for(size_t j=0; j<=gridWidth; ++j)
 		{
 			glm::vec2 intY;
@@ -320,12 +472,12 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 			for(int z=0;z<num;++z)
 				intersections.insert(intX[z] * gridWidth / glyphWidth);
 		}
-	
-		// Necessary? Should never be required on a closed curve.
+
+		// TODO: Necessary? Should never be required on a closed curve.
 		// (Make sure last intersection is >= gridWidth)
-		if(*intersections.rbegin() < gridWidth)
-			intersections.insert(gridWidth);
-		
+		// if(*intersections.rbegin() < gridWidth)
+		// 	intersections.insert(gridWidth);
+
 		bool inside = false;
 		float start = 0;
 		for(auto it=intersections.begin(); it!=intersections.end(); it++)
@@ -352,137 +504,167 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 	return grid;
 }
 
-static void UploadAtlas(GLLabel::AtlasGroup *atlas)
+GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_t point)
 {
-	glBindTexture(GL_TEXTURE_2D, atlas->bezierAtlasId);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kBezierAtlasSize, kBezierAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, atlas->bezierAtlas);
-	glBindTexture(GL_TEXTURE_2D, atlas->gridAtlasId);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, atlas->gridAtlas);
-}
-
-uint32_t GLLabel::LoadCodepointRange(FT_Face face, uint32_t start, uint32_t length)
-{
-	AtlasGroup *atlas = this->GetOpenAtlasGroup();
-	
-	for(uint32_t i=start; i<=start+length; ++i)
+	auto faceIt = this->glyphs.find(face);
+	if(faceIt != this->glyphs.end())
 	{
-		// Load the glyph. FT_LOAD_NO_SCALE implies that FreeType should not
-		// render the glyph to a bitmap, and ensures that metrics and outline
-		// points are represented in font units instead of em.
-		FT_UInt glyphIndex = FT_Get_Char_Index(face, i);
-		if(FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE))
-			continue;
-		
-		FT_Pos glyphWidth = face->glyph->metrics.width;
-		FT_Pos glyphHeight = face->glyph->metrics.height;
-		uint8_t gridWidth, gridHeight;
-		
-		std::vector<Bezier> curves = GetCurvesForOutline(&face->glyph->outline);
-		std::vector<std::set<uint16_t>> grid = GetGridForCurves(curves, glyphWidth, glyphHeight, gridWidth, gridHeight);
-		
-		if(curves.size() == 0 || grid.size() == 0)
-			continue;
-		
-		// Although the data is represented as a 32bit texture, it's actually
-		// two 16bit ints per pixel, each with an x and y coordinate for
-		// the bezier. Every six 16bit ints (3 pixels) is a full bezier
-		// Plus two pixels for grid position information
-		uint16_t bezierPixelLength = 2 + curves.size()*3;
-		
-		if(bezierPixelLength > kBezierAtlasSize)
-		{
-			printf("WARNING: Glyph %i has too many curves. Skipping.\n", i);
-			continue;
-		}
-		
-		// Find an open position in the bezier atlas
-		if(atlas->nextBezierPos[0] + bezierPixelLength > kBezierAtlasSize)
-		{
-			// Next row
-			atlas->nextBezierPos[1] ++;
-			atlas->nextBezierPos[0] = 0;
-			if(atlas->nextBezierPos[1] >= kBezierAtlasSize)
-			{
-				atlas->full = true;
-				UploadAtlas(atlas);
-				atlas = this->GetOpenAtlasGroup();
-			}
-		}
-		
-		// Find an open position in the grid atlas
-		if(atlas->nextGridPos[0] + kGridMaxSize > kGridAtlasSize)
-		{
-			atlas->nextGridPos[1] ++;
-			atlas->nextGridPos[0] = 0;
-			if(atlas->nextGridPos[1] >= kGridAtlasSize)
-			{
-				atlas->full = true;
-				UploadAtlas(atlas);
-				atlas = this->GetOpenAtlasGroup(); // Should only ever happen once per glyph
-			}
-		}
-		
-		uint8_t *bezierData = atlas->bezierAtlas + ((atlas->nextBezierPos[1]+(i-start))*kBezierAtlasSize + atlas->nextGridPos[0])*kAtlasChannels;
-		uint16_t *bezierData16 = (uint16_t *)bezierData;
-
-		// TODO: The shader combines each set of bytes into 16 bit ints, which
-		// depends on endianness. So this currently only works on little-endian
-		for(uint32_t j=0;j<curves.size();++j)
-		{
-			// 3 pixels = 6 uint16s
-			// Scale coords from [0,glyphSize] to [0,maxUShort]
-			bezierData16[j*6+0] = curves[j].e0.x * 65535 / glyphWidth;
-			bezierData16[j*6+1] = curves[j].e0.y * 65535 / glyphHeight;
-			bezierData16[j*6+2] = curves[j].c.x * 65535 / glyphWidth;
-			bezierData16[j*6+3] = curves[j].c.y * 65535 / glyphHeight;
-			bezierData16[j*6+4] = curves[j].e1.x * 65535 / glyphWidth;
-			bezierData16[j*6+5] = curves[j].e1.y * 65535 / glyphHeight;
-		}
-		
-		// Copy grid to atlas
-		for(uint32_t y=0;y<gridHeight;++y)
-		{
-			for(uint32_t x=0;x<gridWidth;++x)
-			{
-				size_t gridIdx = y*gridWidth + x;
-				size_t gridmapIdx = ((kGridAtlasSize - (atlas->nextGridPos[1]+y) - 1)*kGridAtlasSize + (atlas->nextGridPos[0]+x))*kAtlasChannels;
-				
-				size_t j = 0;
-				for(auto it=grid[gridIdx].begin(); it!=grid[gridIdx].end(); ++it)
-				{
-					if(j >= kAtlasChannels) // TODO: More than four beziers per pixel?
-					{
-						printf("MORE THAN 4 on %i\n", i);
-						break;
-					}
-					atlas->gridAtlas[gridmapIdx+j] = *it + 1;
-					j++;
-				}
-			}
-		}
-		
-		Glyph glyph = {0};
-		glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
-		glyph.bezierAtlasPos[1] = atlas->nextBezierPos[1];
-		glyph.atlasIndex = this->atlases.size()-1;
-		// glyph.offset = 
-		// glyph.kern = 
-		this->glyphs[i] = glyph;
-		
-		atlas->nextBezierPos[0] += bezierPixelLength;
-		atlas->nextGridPos[0] += kGridMaxSize;
+		auto glyphIt = faceIt->second.find(point);
+		if(glyphIt != faceIt->second.end())
+			return &glyphIt->second;
 	}
 	
-	UploadAtlas(atlas);
+	AtlasGroup *atlas = this->GetOpenAtlasGroup();
+
+	// Load the glyph. FT_LOAD_NO_SCALE implies that FreeType should not
+	// render the glyph to a bitmap, and ensures that metrics and outline
+	// points are represented in font units instead of em.
+	FT_UInt glyphIndex = FT_Get_Char_Index(face, point);
+	if(FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE))
+		return nullptr;
+	
+	FT_Pos glyphWidth = face->glyph->metrics.width;
+	FT_Pos glyphHeight = face->glyph->metrics.height;
+	uint8_t gridWidth, gridHeight;
+	
+	std::vector<Bezier> curves = GetCurvesForOutline(&face->glyph->outline);
+	std::vector<std::set<uint16_t>> grid = GetGridForCurves(curves, glyphWidth, glyphHeight, gridWidth, gridHeight);
+	
+	if(curves.size() == 0 || grid.size() == 0)
+		return nullptr;
+	
+	// Although the data is represented as a 32bit texture, it's actually
+	// two 16bit ints per pixel, each with an x and y coordinate for
+	// the bezier. Every six 16bit ints (3 pixels) is a full bezier
+	// Plus two pixels for grid position information
+	uint16_t bezierPixelLength = 2 + curves.size()*3;
+	
+	if(bezierPixelLength > kBezierAtlasSize)
+	{
+		printf("WARNING: Glyph %i has too many curves\n", point);
+		return nullptr;
+	}
+	
+	// Find an open position in the bezier atlas
+	if(atlas->nextBezierPos[0] + bezierPixelLength > kBezierAtlasSize)
+	{
+		// Next row
+		atlas->nextBezierPos[1] ++;
+		atlas->nextBezierPos[0] = 0;
+		if(atlas->nextBezierPos[1] >= kBezierAtlasSize)
+		{
+			atlas->full = true;
+			atlas->uploaded = false;
+			atlas = this->GetOpenAtlasGroup();
+		}
+	}
+	
+	// Find an open position in the grid atlas
+	if(atlas->nextGridPos[0] + kGridMaxSize > kGridAtlasSize)
+	{
+		atlas->nextGridPos[1] ++;
+		atlas->nextGridPos[0] = 0;
+		if(atlas->nextGridPos[1] >= kGridAtlasSize)
+		{
+			atlas->full = true;
+			atlas->uploaded = false;
+			atlas = this->GetOpenAtlasGroup(); // Should only ever happen once per glyph
+		}
+	}
+	
+	uint8_t *bezierData = atlas->bezierAtlas + (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextGridPos[0])*kAtlasChannels;
+	uint16_t *bezierData16 = (uint16_t *)bezierData;
+
+	// TODO: The shader combines each set of bytes into 16 bit ints, which
+	// depends on endianness. So this currently only works on little-endian
+	bezierData16[0] = atlas->nextGridPos[0];
+	bezierData16[1] = atlas->nextGridPos[1];
+	bezierData16[2] = kGridMaxSize;
+	bezierData16[3] = kGridMaxSize;
+	bezierData16 += 4;
+	for(uint32_t j=0;j<curves.size();++j)
+	{
+		// 3 pixels = 6 uint16s
+		// Scale coords from [0,glyphSize] to [0,maxUShort]
+		bezierData16[j*6+0] = curves[j].e0.x * 65535 / glyphWidth;
+		bezierData16[j*6+1] = curves[j].e0.y * 65535 / glyphHeight;
+		bezierData16[j*6+2] = curves[j].c.x * 65535 / glyphWidth;
+		bezierData16[j*6+3] = curves[j].c.y * 65535 / glyphHeight;
+		bezierData16[j*6+4] = curves[j].e1.x * 65535 / glyphWidth;
+		bezierData16[j*6+5] = curves[j].e1.y * 65535 / glyphHeight;
+	}
+	
+	// Copy grid to atlas
+	for(uint32_t y=0;y<gridHeight;++y)
+	{
+		for(uint32_t x=0;x<gridWidth;++x)
+		{
+			size_t gridIdx = y*gridWidth + x;
+			size_t gridmapIdx = ((kGridAtlasSize - (atlas->nextGridPos[1]+y) - 1)*kGridAtlasSize + (atlas->nextGridPos[0]+x))*kAtlasChannels;
+			
+			size_t j = 0;
+			for(auto it=grid[gridIdx].begin(); it!=grid[gridIdx].end(); ++it)
+			{
+				if(j >= kAtlasChannels) // TODO: More than four beziers per pixel?
+				{
+					printf("MORE THAN 4 on %i\n", point);
+					break;
+				}
+				atlas->gridAtlas[gridmapIdx+j] = *it + 1;
+				j++;
+			}
+		}
+	}
+	
+	GLFontManager::Glyph glyph = {0};
+	glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
+	glyph.bezierAtlasPos[1] = atlas->nextBezierPos[1];
+	glyph.atlasIndex = this->atlases.size()-1;
+	glyph.size = glm::vec2(glyphWidth, glyphHeight);
+	glyph.shift = face->glyph->advance.x;
+	// glyph.offset = 
+	// glyph.kern = 
+	this->glyphs[face][point] = glyph;
+	
+	atlas->nextBezierPos[0] += bezierPixelLength;
+	atlas->nextGridPos[0] += kGridMaxSize;
+	atlas->uploaded = false;
+	
+	return &this->glyphs[face][point];
 }
 
-size_t GLLabel::GetNumLines()
+void GLFontManager::LoadASCII(FT_Face face)
 {
-	size_t lines = 0;
-	for(size_t i=0; i<this->text.size(); ++i)
-		if(this->text[i] == '\n')
-			lines ++;
-	return lines;
+	if(!face)
+		return;
+	
+	this->GetGlyphForCodepoint(face, 0);
+	for(int i=32; i<128; ++i)
+		this->GetGlyphForCodepoint(face, i);
+}
+
+void GLFontManager::UploadAtlases()
+{
+	for(size_t i=0;i<this->atlases.size();++i)
+	{
+		if(this->atlases[i].uploaded)
+			continue;
+		glBindTexture(GL_TEXTURE_2D, this->atlases[i].bezierAtlasId);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kBezierAtlasSize, kBezierAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].bezierAtlas);
+		glBindTexture(GL_TEXTURE_2D, this->atlases[i].gridAtlasId);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].gridAtlas);
+		atlases[i].uploaded = true;
+	}
+}
+
+void GLFontManager::UseGlyphShader()
+{
+	glUseProgram(this->glyphShader);
+}
+
+void GLFontManager::SetShaderPosScale(glm::vec4 posScale)
+{
+	glUniform4f(this->uPosScale, posScale.x, posScale.y, posScale.z, posScale.w);
 }
 
 static char32_t readNextChar(const char **p, size_t *datalen)
@@ -493,7 +675,7 @@ static char32_t readNextChar(const char **p, size_t *datalen)
 	
 #define IS_IN_RANGE(c, f, l)    (((c) >= (f)) && ((c) <= (l)))
 	
-	unsigned char c1, c2, *ptr = (unsigned char*)p;
+	unsigned char c1, c2, *ptr = (unsigned char*)(*p);
 	char32_t uc = 0;
 	int seqlen;
 	// int datalen = ... available length of p ...;
@@ -608,3 +790,80 @@ static char32_t readNextChar(const char **p, size_t *datalen)
 	(*datalen) += seqlen;
 	return uc;
 }
+
+static GLuint loadShaderProgram(const char *vertexShaderPath, const char *fragmentShaderPath)
+{
+	// Compile vertex shader
+	std::ifstream vsStream(vertexShaderPath);
+	std::string vsCode((std::istreambuf_iterator<char>(vsStream)), (std::istreambuf_iterator<char>()));
+	const char *vsCodeC = vsCode.c_str();
+	
+	GLuint vertexShaderId = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vertexShaderId, 1, &vsCodeC, NULL);
+	glCompileShader(vertexShaderId);
+	
+	GLint result = GL_FALSE;
+	int infoLogLength = 0;
+	glGetShaderiv(vertexShaderId, GL_COMPILE_STATUS, &result);
+	glGetShaderiv(vertexShaderId, GL_INFO_LOG_LENGTH, &infoLogLength);
+	if(infoLogLength > 1)
+	{
+		std::vector<char> infoLog(infoLogLength+1);
+		glGetShaderInfoLog(vertexShaderId, infoLogLength, NULL, &infoLog[0]);
+		printf("[Vertex] %s\n", &infoLog[0]);
+	}
+	if(!result)
+		return 0;
+
+	// Compile fragment shader
+	std::ifstream fsStream(fragmentShaderPath);
+	std::string fsCode((std::istreambuf_iterator<char>(fsStream)), (std::istreambuf_iterator<char>()));
+	const char *fsCodeC = fsCode.c_str();
+	
+	GLuint fragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(fragmentShaderId, 1, &fsCodeC, NULL);
+	glCompileShader(fragmentShaderId);
+	
+	result = GL_FALSE, infoLogLength = 0;
+	glGetShaderiv(fragmentShaderId, GL_COMPILE_STATUS, &result);
+	glGetShaderiv(fragmentShaderId, GL_INFO_LOG_LENGTH, &infoLogLength);
+	if(infoLogLength > 1)
+	{
+		std::vector<char> infoLog(infoLogLength);
+		glGetShaderInfoLog(fragmentShaderId, infoLogLength, NULL, &infoLog[0]);
+		printf("[Fragment] %s\n", &infoLog[0]);
+	}
+	if(!result)
+		return 0;
+	
+	// Link the program
+	GLuint programId = glCreateProgram();
+	glAttachShader(programId, vertexShaderId);
+	glAttachShader(programId, fragmentShaderId);
+	glLinkProgram(programId);
+
+	result = GL_FALSE, infoLogLength = 0;
+	glGetProgramiv(programId, GL_LINK_STATUS, &result);
+	glGetProgramiv(programId, GL_INFO_LOG_LENGTH, &infoLogLength);
+	if(infoLogLength > 1)
+	{
+		std::vector<char> infoLog(infoLogLength+1);
+		glGetProgramInfoLog(programId, infoLogLength, NULL, &infoLog[0]);
+		printf("[Shader Linker] %s\n", &infoLog[0]);
+	}
+	if(!result)
+		return 0;
+
+	glDetachShader(programId, vertexShaderId);
+	glDetachShader(programId, fragmentShaderId);
+	
+	glDeleteShader(vertexShaderId);
+	glDeleteShader(fragmentShaderId);
+
+	return programId;
+}
+
+
+// static const char *kGlyphVertexShader = R"(
+// 	
+// )";

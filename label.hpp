@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <memory>
 #include <map>
 #include <glew.h>
 #include <glm/glm.hpp>
@@ -7,16 +8,9 @@
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
 
-class GLLabel
+class GLFontManager
 {
 public:
-	enum class Align
-	{
-		Start,
-		Center,
-		End
-	};
-	
 	struct AtlasGroup
 	{
 		// Grid atlas contains an array of square grids with side length
@@ -33,21 +27,65 @@ public:
 		uint8_t *bezierAtlas, *gridAtlas;
 		uint16_t nextBezierPos[2], nextGridPos[2]; // XY pixel coordinates 
 		bool full; // For faster checking
+		bool uploaded;
 	};
 	
-private:
 	struct Glyph
 	{
 		uint16_t bezierAtlasPos[2]; // XY pixel coordinates
 		int16_t atlasIndex;
-		int16_t offset[2]; // Amount to shift after character, [-1,1] range
-		int16_t kern;
+		glm::vec2 size;// Width and height in GL units
+		float shift; // Amount to shift after character in GL units
+	};
+
+public: // TODO: private
+	std::vector<AtlasGroup> atlases;
+	std::map<FT_Face, std::map<uint32_t, Glyph>> glyphs;
+	FT_Library ft;
+	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uPosScale;
+	
+	GLFontManager();
+	
+	AtlasGroup * GetOpenAtlasGroup();
+	
+public:
+	~GLFontManager();
+
+	static std::shared_ptr<GLFontManager> singleton;
+	static std::shared_ptr<GLFontManager> GetFontManager();	
+	
+	FT_Face GetFontFromPath(std::string fontPath);
+	FT_Face GetFontFromName(std::string fontName);
+	FT_Face GetDefaultFont();
+	
+	Glyph * GetGlyphForCodepoint(FT_Face face, uint32_t point);
+	void LoadASCII(FT_Face face);
+	void UploadAtlases();
+	
+	void UseGlyphShader();
+	void SetShaderPosScale(glm::vec4 posScale); // Only to be used after UseGlyphShader called
+};
+
+class GLLabel
+{
+public:
+	enum class Align
+	{
+		Start,
+		Center,
+		End
 	};
 	
+	struct Color
+	{
+		uint8_t r,g,b,a;
+	};
+	
+private:
 	struct GlyphVertex
 	{
-		// XY coords of the vertex in range [-1,1]
-		int16_t pos[2];
+		// XY coords of the vertex
+		glm::vec2 pos;
 		
 		// The UV coords of the data for this glyph in the bezier atlas
 		// Also contains a vertex-dependent norm coordiate by encoding:
@@ -56,35 +94,48 @@ private:
 		uint16_t data[2];
 		
 		// RGBA color [0,255]
-		uint8_t color[4];
+		Color color;
 	};
 	
-	std::vector<AtlasGroup> atlases;
-	std::map<uint32_t, Glyph> glyphs;
+	std::shared_ptr<GLFontManager> manager;
 	std::vector<GlyphVertex> verts;
+	GLuint vertBuffer;
 	
 	std::string text;
-	double x, y;
-	bool showingCursor;
+	glm::vec2 pos, scale, appendOffset;
+	bool showingCaret;
 	Align horzAlign;
 	Align vertAlign;
-	
-	AtlasGroup * GetOpenAtlasGroup();
-	uint32_t LoadCodepointRange(FT_Face face, uint32_t start, uint32_t length);
-	size_t GetNumLines();
-	
+	FT_Face lastFace;
+	Color lastColor;
+		
 public:
 	GLLabel();
-	GLLabel(std::string text);	
+	GLLabel(std::string text);
 	~GLLabel();
 	
-	void SetText(std::string text);
-	void AppendText(std::string text);
+	inline std::string GetText() { return this->text; }
+
+	inline void SetText(std::string text) { SetText(text, lastFace, lastColor); }
+	inline void SetText(std::string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
+	void SetText(std::string text, FT_Face face, Color color);
 	
-	void SetPosition(double x, double y);
+	inline void AppendText(std::string text) { AppendText(text, lastFace, lastColor); }
+	inline void AppendText(std::string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
+	void AppendText(std::string text, FT_Face face, Color color);
+
+	void SetPosition(float x, float y) { this->pos = glm::vec2(x,y); }
+	void SetScale(float x, float y) { this->scale = glm::vec2(x,y); }
 	void SetHorzAlignment(Align horzAlign);
 	void SetVertAlignment(Align vertAlign);
-	void ShowCursor(bool show);
+	void ShowCaret(bool show) { showingCaret = show; }
 	
+	// Render the label. Also uploads modified textures as necessary. 'time'
+	// should be passed in monotonic seconds (no specific zero time necessary).
 	void Render(float time);
+	
+	// In the case that multiple GLLabels are rendered in immediate succession,
+	// the first label should be rendered by calling GLLabel::Render and
+	// then the rest can be rendered faster by calling GLLabel::RenderAlso.
+	void RenderAlso(float time);
 };
