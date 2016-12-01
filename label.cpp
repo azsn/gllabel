@@ -591,7 +591,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	// Find an open position in the grid atlas
 	if(atlas->nextGridPos[0] + kGridMaxSize > kGridAtlasSize)
 	{
-		atlas->nextGridPos[1] ++;
+		atlas->nextGridPos[1] += kGridMaxSize;
 		atlas->nextGridPos[0] = 0;
 		if(atlas->nextGridPos[1] >= kGridAtlasSize)
 		{
@@ -666,10 +666,9 @@ void GLFontManager::LoadASCII(FT_Face face)
 {
 	if(!face)
 		return;
-	
-	// this->GetGlyphForCodepoint(face, 0);
-	// for(int i=32; i<128; ++i)
-	// 	this->GetGlyphForCodepoint(face, i);
+	this->GetGlyphForCodepoint(face, 0);
+	for(int i=32; i<128; ++i)
+		this->GetGlyphForCodepoint(face, i);
 }
 
 void GLFontManager::UploadAtlases()
