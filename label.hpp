@@ -33,7 +33,7 @@ public:
 	struct Glyph
 	{
 		uint16_t bezierAtlasPos[2]; // XY pixel coordinates
-		int16_t atlasIndex;
+		uint16_t atlasIndex;
 		glm::vec2 size;// Width and height in GL units
 		float shift; // Amount to shift after character in GL units
 	};

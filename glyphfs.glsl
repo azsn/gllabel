@@ -31,14 +31,20 @@ bool almostEqual(float a, float b) {
 	return abs(a-b) < 1e-5;
 }
 
-float normalizedUshortFromVec2(vec2 v) {
+float normalizedUshortFromVec2(vec2 v)
+{
 	return (v.y * 65280.0 + v.x * 255.0) / 65536.0;
+}
+
+vec4 getPixelByXY(vec2 coord)
+{
+	return texture2D(uBezierAtlas, (coord+0.5)*uBezierTexel);
 }
 
 void fetchBezier(int coordIndex, out vec2 p[3]) {
 	for (int i=0; i<3; i++) {
-		vec4 tex = texture2D(uBezierAtlas, vec2(oBezierCoord.x + coordIndex*3+i+0.5, oBezierCoord.y+0.5)*uBezierTexel);
-		p[i] = vec2(normalizedUshortFromVec2(tex.rg), normalizedUshortFromVec2(tex.ba)) - oNormCoord;
+		vec4 pixel = getPixelByXY(vec2(oBezierCoord.x + 2 + coordIndex*3 + i, oBezierCoord.y));
+		p[i] = vec2(normalizedUshortFromVec2(pixel.xy), normalizedUshortFromVec2(pixel.zw)) - oNormCoord;
 	}
 }
 
@@ -108,7 +114,7 @@ mat2 inverse(mat2 m) {
 
 void main()
 {
-    vec2 integerCell = floor( clamp(oNormCoord * oGridRect.zw, vec2(0.5), vec2(oGridRect.zw)-0.5));
+    vec2 integerCell = floor(clamp(oNormCoord * oGridRect.zw, vec2(0.5), vec2(oGridRect.zw)-0.5));
     vec2 indicesCoord = oGridRect.xy + integerCell + 0.5;
     vec2 cellMid = (integerCell + 0.5) / oGridRect.zw;
 
@@ -117,8 +123,8 @@ void main()
     float theta = pi/float(numSS);
     mat2 rotM = mat2(cos(theta), sin(theta), -sin(theta), cos(theta));      // note this is column major ordering
 
-    ivec4 indices1, indices2;
-    indices1 = ivec4(texture2D(uGridAtlas, indicesCoord * uGridTexel) * 255.0 + 0.5);
+    ivec4 indices1;
+    indices1 = ivec4(texture2D(uGridAtlas, indicesCoord*uGridTexel) * 255.0 + 0.5);
     // indices2 = ivec4(texture2D(uAtlasSampler, vec2(indicesCoord.x + vGridSize.x, indicesCoord.y) * uTexelSize) * 255.0 + 0.5);
 
     // bool moreThanFourIndices = indices1[0] < indices1[1];
@@ -207,6 +213,20 @@ void main()
     percent = percent / float(numSS);
 	gl_FragColor = oColor;
 	gl_FragColor.a *= percent;
+	// gl_FragColor.a += 0.2;
 	
-	gl_FragColor.a += 0.2;
+	// // gl_FragColor.r = uBezierTexel.y*128;
+	// gl_FragColor.r = oGridRect.y;
+	// // gl_FragColor.g = oGridRect.y;
+	// // gl_FragColor.b = oGridRect.z;
+	
+	// vec2 h = oGridRect.xy + oNormCoord*oGridRect.zw;
+	// vec2 l = vec2((h.x+0.5)*uGridTexel.x, (h.y+0.5)*uGridTexel.y);
+	// 
+	
+	// gl_FragColor = getPixelByXY(vec2(oBezierCoord.x + oNormCoord, oBezierCoord.y));
+
+	
+	// gl_FragColor = texture2D(uGridAtlas, l);
+	// gl_FragColor.a = 1;
 }

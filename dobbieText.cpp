@@ -407,7 +407,7 @@ void getGlyphCurves()
 		// printf("%i num curves %i\n", i, curves.size());
 		if(!success)
 			continue;
-			
+		
 		// Max that can fit in 128 width
 		// TODO: Fix this magic number crap
 		if(curves.size() > 42)
@@ -530,18 +530,18 @@ void dobbieRender()
 	uint8_t *oNormCoord = (uint8_t *)(vertexBuf + 16); // 2 bytes
 	uint16_t *oBezierIndex = (uint16_t *)(vertexBuf + 18); // 1 short
 	
-	oPosition[0 +0] = -2553;
-	oPosition[0 +1] = -3027;
-	oPosition[10+0] = -2183;
-	oPosition[10+1] = -3027;
-	oPosition[20+0] = -2553;
-	oPosition[20+1] = -3359;
-	oPosition[30+0] = -2183;
-	oPosition[30+1] = -3359;
-	oPosition[40+0] = -2553;
-	oPosition[40+1] = -3359;
-	oPosition[50+0] = -2183;
-	oPosition[50+1] = -3027;
+	oPosition[0 +0] = -2553; // 0  // A  bottom left 
+	oPosition[0 +1] = -3027; // 332
+	oPosition[10+0] = -2183; // 370    // B  bottom right
+	oPosition[10+1] = -3027; // 332
+	oPosition[20+0] = -2553; // 0  // C  top left
+	oPosition[20+1] = -3359; // 0
+	oPosition[30+0] = -2183; // 370 // D  top right
+	oPosition[30+1] = -3359; // 0
+	oPosition[40+0] = -2553; // 0  // C  top left
+	oPosition[40+1] = -3359; // 0
+	oPosition[50+0] = -2183; // 370    // B  bottom right
+	oPosition[50+1] = -3027; // 332
 	for(unsigned int x=0;x<6;++x)
 	{
 		oGridRect[10*x +0] = (q%10)*40;
@@ -622,5 +622,5 @@ void dobbieRender()
 	glUniform2f(uPositionMul, aspect/zoomx, 1/zoomy);
 	glUniform2f(uPositionAdd, aspect * -translateX / zoomx, -translateY / zoomy);
 	
-	glDrawArrays(GL_TRIANGLES, 0, numGlyphs*6);
+	glDrawArrays(GL_TRIANGLES, 0, numGlyphs*3);
 }

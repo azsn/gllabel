@@ -1,3 +1,25 @@
+/*
+ * Aidan Shafran <zelbrium@gmail.com>, 2016.
+ *
+ * This code is based on Will Dobbie's WebGL vector-based text rendering (2016).
+ * It can be found here:
+ * http://wdobbie.com/post/gpu-text-rendering-with-vector-textures/
+ *
+ * Dobbie's original code used a pre-generated bezier curve atlas generated
+ * from a PDF. This GLLabel class allows for live text rendering based on
+ * glyph curves exported from FreeType2.
+ *
+ * Text is rendered size-independently. This means you can scale, rotate,
+ * or reposition text rendered using GLLabel without any loss of quality.
+ * All that's required is a font file to load the text from. TTF works well.
+ *
+ * Dobbie's original code has no attached license, however his comments seem
+ * to imply the code is freely available for use. I have contacted him to ask
+ * for a license, but received no response. Until further notice, this code is
+ * licensed under the Apache Public License v2.0.
+ * (Dobbie, please let me know if you have issues with this.)
+ */
+
 #include "label.hpp"
 #include <set>
 #include <fstream>
@@ -11,7 +33,7 @@ std::shared_ptr<GLFontManager> GLFontManager::singleton = nullptr;
 
 static const uint8_t kGridMaxSize = 20; // Grids can be smaller if necessary
 static const uint16_t kGridAtlasSize = 256; // Fits exactly 1024 8x8 grids
-static const uint16_t kBezierAtlasSize = 1024; // Fits around 1024 glyphs +- a few
+static const uint16_t kBezierAtlasSize = 128; // Fits around 1024 glyphs +- a few
 static const uint8_t kAtlasChannels = 4; // Must be 4 (RGBA), otherwise code breaks
 
 GLLabel::GLLabel()
@@ -73,20 +95,19 @@ void GLLabel::AppendText(std::string text, FT_Face face, Color color)
 		if(c == '\n')
 		{
 			this->appendOffset.x = 0;
-			this->appendOffset.y = face->height;
+			this->appendOffset.y = -face->height;
 			continue;
 		}
 		
 		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, c);
 		
 		GlyphVertex v[6];
-		v[0].pos = this->appendOffset + glm::vec2(0, glyph->size.y);
-		v[1].pos = this->appendOffset + glm::vec2(glyph->size.x, glyph->size.y);
-		v[2].pos = this->appendOffset;
-		v[3].pos = this->appendOffset + glm::vec2(glyph->size.x, 0);
-		v[4].pos = this->appendOffset;
-		v[5].pos = this->appendOffset + glm::vec2(glyph->size.x, glyph->size.y);
-		
+		v[0].pos = this->appendOffset;
+		v[1].pos = this->appendOffset + glm::vec2(glyph->size.x, 0);
+		v[2].pos = this->appendOffset + glm::vec2(0, glyph->size.y);
+		v[3].pos = this->appendOffset + glm::vec2(glyph->size.x, glyph->size.y);
+		v[4].pos = this->appendOffset + glm::vec2(0, glyph->size.y);
+		v[5].pos = this->appendOffset + glm::vec2(glyph->size.x, 0);
 		for(unsigned int i=0;i<6;++i)
 		{
 			v[i].color = color;
@@ -127,8 +148,6 @@ void GLLabel::Render(float time)
 	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
 	glEnable(GL_BLEND);
 	
-	// printf("i: %i, k %i\n", offsetof(GLLabel::GlyphVertex, pos), sizeof(GLLabel::GlyphVertex));
-	
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
@@ -141,7 +160,7 @@ void GLLabel::Render(float time)
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, this->manager->atlases[0].bezierAtlasId);
 	
-	this->manager->SetShaderPosScale(glm::vec4(0,0,1/5000.0,1/5000.0));
+	this->manager->SetShaderPosScale(glm::vec4(-0.9,-0.9,abs(sin(time/2))/1000.0,abs(sin(time/2))/500.0));
 	
 	glDrawArrays(GL_TRIANGLES, 0, this->verts.size());
 	
@@ -178,6 +197,7 @@ GLFontManager::GLFontManager()
 	this->uBezierTexel = glGetUniformLocation(glyphShader, "uBezierTexel");
 	this->uPosScale = glGetUniformLocation(glyphShader, "uPosScale");
 	
+	this->UseGlyphShader();
 	glUniform1i(this->uGridAtlas, 0);
 	glUniform1i(this->uBezierAtlas, 1);
 	glUniform2f(this->uGridTexel, 1.0/kGridAtlasSize, 1.0/kGridAtlasSize);
@@ -430,7 +450,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 			
 			for(int z=0;z<num;++z)
 			{
-				uint8_t y = gridHeight - (uint8_t)glm::clamp((signed long)(intY[z] * gridHeight / glyphHeight), 0L, (signed long)gridHeight-1) - 1;
+				uint8_t y = (uint8_t)glm::clamp((signed long)(intY[z] * gridHeight / glyphHeight), 0L, (signed long)gridHeight-1);
 				uint8_t x1 = (size_t)std::max((signed long)j-1, (signed long)0);
 				uint8_t x2 = (size_t)std::min((signed long)j, (signed long)gridWidth-1);
 				SETGRID(x1, y);
@@ -446,8 +466,8 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 			for(int z=0;z<num;++z)
 			{
 				uint8_t x = (uint8_t)glm::clamp((signed long)(intX[z] * gridWidth / glyphWidth), 0L, (signed long)gridWidth-1);
-				uint8_t y1 = gridHeight - (size_t)std::max((signed long)j-1, (signed long)0) - 1;
-				uint8_t y2 = gridHeight - (size_t)std::min((signed long)j, (signed long)gridHeight-1) - 1;
+				uint8_t y1 = (size_t)std::max((signed long)j-1, (signed long)0);
+				uint8_t y2 = (size_t)std::min((signed long)j, (signed long)gridHeight-1);
 				SETGRID(x, y1);
 				SETGRID(x, y2);
 			}
@@ -492,7 +512,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 				
 				for(size_t k=roundS;k<roundE;++k)
 				{
-					size_t gridIndex = (gridHeight-i-1)*gridWidth + k;
+					size_t gridIndex = i*gridWidth + k;
 					grid[gridIndex].insert(254); // Becomes 255 after +1 to remove 0s
 				}
 			}
@@ -530,19 +550,23 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	std::vector<Bezier> curves = GetCurvesForOutline(&face->glyph->outline);
 	std::vector<std::set<uint16_t>> grid = GetGridForCurves(curves, glyphWidth, glyphHeight, gridWidth, gridHeight);
 	
-	if(curves.size() == 0 || grid.size() == 0)
-		return nullptr;
-	
 	// Although the data is represented as a 32bit texture, it's actually
 	// two 16bit ints per pixel, each with an x and y coordinate for
 	// the bezier. Every six 16bit ints (3 pixels) is a full bezier
 	// Plus two pixels for grid position information
 	uint16_t bezierPixelLength = 2 + curves.size()*3;
 	
-	if(bezierPixelLength > kBezierAtlasSize)
+	if(curves.size() == 0 || grid.size() == 0 || bezierPixelLength > kBezierAtlasSize)
 	{
-		printf("WARNING: Glyph %i has too many curves\n", point);
-		return nullptr;
+		if(bezierPixelLength > kBezierAtlasSize)
+			printf("WARNING: Glyph %i has too many curves\n", point);
+
+		GLFontManager::Glyph glyph = {0};
+		glyph.atlasIndex = -1;
+		glyph.size = glm::vec2(glyphWidth, glyphHeight);
+		glyph.shift = face->glyph->advance.x;
+		this->glyphs[face][point] = glyph;
+		return &this->glyphs[face][point];
 	}
 	
 	// Find an open position in the bezier atlas
@@ -572,24 +596,24 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		}
 	}
 	
-	uint8_t *bezierData = atlas->bezierAtlas + (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextGridPos[0])*kAtlasChannels;
+	uint8_t *bezierData = atlas->bezierAtlas + (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextBezierPos[0])*kAtlasChannels;
 	uint16_t *bezierData16 = (uint16_t *)bezierData;
-
+	
 	// TODO: The shader combines each set of bytes into 16 bit ints, which
 	// depends on endianness. So this currently only works on little-endian
 	bezierData16[0] = atlas->nextGridPos[0];
 	bezierData16[1] = atlas->nextGridPos[1];
 	bezierData16[2] = kGridMaxSize;
 	bezierData16[3] = kGridMaxSize;
-	bezierData16 += 4;
+	bezierData16 += 4; // 2 pixels
 	for(uint32_t j=0;j<curves.size();++j)
 	{
 		// 3 pixels = 6 uint16s
 		// Scale coords from [0,glyphSize] to [0,maxUShort]
 		bezierData16[j*6+0] = curves[j].e0.x * 65535 / glyphWidth;
 		bezierData16[j*6+1] = curves[j].e0.y * 65535 / glyphHeight;
-		bezierData16[j*6+2] = curves[j].c.x * 65535 / glyphWidth;
-		bezierData16[j*6+3] = curves[j].c.y * 65535 / glyphHeight;
+		bezierData16[j*6+2] = curves[j].c.x  * 65535 / glyphWidth;
+		bezierData16[j*6+3] = curves[j].c.y  * 65535 / glyphHeight;
 		bezierData16[j*6+4] = curves[j].e1.x * 65535 / glyphWidth;
 		bezierData16[j*6+5] = curves[j].e1.y * 65535 / glyphHeight;
 	}
@@ -600,7 +624,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		for(uint32_t x=0;x<gridWidth;++x)
 		{
 			size_t gridIdx = y*gridWidth + x;
-			size_t gridmapIdx = ((kGridAtlasSize - (atlas->nextGridPos[1]+y) - 1)*kGridAtlasSize + (atlas->nextGridPos[0]+x))*kAtlasChannels;
+			size_t gridmapIdx = ((atlas->nextGridPos[1]+y)*kGridAtlasSize + (atlas->nextGridPos[0]+x))*kAtlasChannels;
 			
 			size_t j = 0;
 			for(auto it=grid[gridIdx].begin(); it!=grid[gridIdx].end(); ++it)
@@ -638,9 +662,9 @@ void GLFontManager::LoadASCII(FT_Face face)
 	if(!face)
 		return;
 	
-	this->GetGlyphForCodepoint(face, 0);
-	for(int i=32; i<128; ++i)
-		this->GetGlyphForCodepoint(face, i);
+	// this->GetGlyphForCodepoint(face, 0);
+	// for(int i=32; i<128; ++i)
+	// 	this->GetGlyphForCodepoint(face, i);
 }
 
 void GLFontManager::UploadAtlases()
