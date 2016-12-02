@@ -42,7 +42,7 @@ public: // TODO: private
 	std::vector<AtlasGroup> atlases;
 	std::map<FT_Face, std::map<uint32_t, Glyph>> glyphs;
 	FT_Library ft;
-	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uPosScale;
+	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uTransform;
 	
 	GLFontManager();
 	
@@ -63,7 +63,8 @@ public:
 	void UploadAtlases();
 	
 	void UseGlyphShader();
-	void SetShaderPosScale(glm::vec4 posScale); // Only to be used after UseGlyphShader called
+	void SetShaderTransform(glm::mat4 transform);
+	void UseAtlasTextures(uint16_t atlasIndex);
 };
 
 class GLLabel
@@ -102,12 +103,11 @@ private:
 	GLuint vertBuffer;
 	
 	std::string text;
-	glm::vec2 pos, scale, appendOffset;
-	bool showingCaret;
-	Align horzAlign;
-	Align vertAlign;
+	glm::vec2 appendOffset;
+	Align horzAlign, vertAlign;
 	FT_Face lastFace;
 	Color lastColor;
+	bool showingCaret;
 		
 public:
 	GLLabel();
@@ -124,18 +124,11 @@ public:
 	inline void AppendText(std::string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
 	void AppendText(std::string text, FT_Face face, Color color);
 
-	void SetPosition(float x, float y) { this->pos = glm::vec2(x,y); }
-	void SetScale(float x, float y) { this->scale = glm::vec2(x,y); }
 	void SetHorzAlignment(Align horzAlign);
 	void SetVertAlignment(Align vertAlign);
 	void ShowCaret(bool show) { showingCaret = show; }
 	
 	// Render the label. Also uploads modified textures as necessary. 'time'
 	// should be passed in monotonic seconds (no specific zero time necessary).
-	void Render(float time);
-	
-	// In the case that multiple GLLabels are rendered in immediate succession,
-	// the first label should be rendered by calling GLLabel::Render and
-	// then the rest can be rendered faster by calling GLLabel::RenderAlso.
-	void RenderAlso(float time);
+	void Render(float time, glm::mat4 transform);
 };

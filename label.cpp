@@ -23,6 +23,7 @@
 #include "label.hpp"
 #include <set>
 #include <fstream>
+#include <glm/gtc/type_ptr.hpp>
 
 #define sq(x) ((x)*(x))
 
@@ -42,9 +43,8 @@ static const uint16_t kBezierAtlasSize = 128; // Fits around 1024 glyphs +- a fe
 static const uint8_t kAtlasChannels = 4; // Must be 4 (RGBA), otherwise code breaks
 
 GLLabel::GLLabel()
-: pos(0,0), scale(1,1), appendOffset(0,0),
-horzAlign(GLLabel::Align::Start),vertAlign(GLLabel::Align::Start),
-showingCaret(false)
+: appendOffset(0,0), showingCaret(false),
+horzAlign(GLLabel::Align::Start), vertAlign(GLLabel::Align::Start)
 {
 	this->lastColor = {0,0,0,255};
 	this->manager = GLFontManager::GetFontManager();
@@ -72,16 +72,6 @@ void GLLabel::SetText(std::string text, FT_Face font, Color color)
 
 void GLLabel::AppendText(std::string text, FT_Face face, Color color)
 {
-	// GlyphVertex q[3];
-	// q[0].pos = glm::vec2(0, 10000);
-	// q[1].pos = glm::vec2(10000,10000);
-	// q[2].pos = glm::vec2(0,0);
-	// this->verts.push_back(q[0]);
-	// this->verts.push_back(q[1]);
-	// this->verts.push_back(q[2]);
-	
-	size_t prevNumVerts = this->verts.size();
-	
 	const char *cstr = text.c_str();
 	size_t cstrLen = text.size();
 	while(cstr[0] != '\0')
@@ -129,11 +119,6 @@ void GLLabel::AppendText(std::string text, FT_Face face, Color color)
 		this->appendOffset.x += glyph->shift;
 	}
 	
-	size_t deltaVerts = this->verts.size() - prevNumVerts;
-	if(deltaVerts == 0)
-		return;
-	
-	// TODO: Only upload recent verts
 	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
 	glBufferData(GL_ARRAY_BUFFER, this->verts.size() * sizeof(GlyphVertex), &this->verts[0], GL_DYNAMIC_DRAW);
 }
@@ -145,14 +130,15 @@ void GLLabel::SetVertAlignment(Align vertAlign)
 {
 }
 
-void GLLabel::Render(float time)
+void GLLabel::Render(float time, glm::mat4 transform)
 {
-	this->manager->UploadAtlases();
 	this->manager->UseGlyphShader();
+	this->manager->UploadAtlases();
+	this->manager->UseAtlasTextures(0); // TODO: Textures based on each glyph
+	this->manager->SetShaderTransform(transform);
 	
-	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
 	glEnable(GL_BLEND);
-	
+	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
@@ -160,33 +146,13 @@ void GLLabel::Render(float time)
 	glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
 	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, color));
 	
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, this->manager->atlases[0].gridAtlasId);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, this->manager->atlases[0].bezierAtlasId);
-	
-	this->manager->SetShaderPosScale(glm::vec4(-0.9,-0.9,abs(sin(time/2))/1000.0,abs(sin(time/2))/500.0));
-	
 	glDrawArrays(GL_TRIANGLES, 0, this->verts.size());
 	
-	// float aspect = (768*1.5) / (1024*1.5);
-	// // float zoomx = std::sin(zoom) + 1.01;
-	// // float zoomy = std::sin(zoom) + 1.01;
-	// float zoomx = 1.01;
-	// float zoomy = 1.01;
-	// zoomx /= 100.0; zoomy /= 100.0;
-	// float translateX = 0.4295;
-	// float translateY = 0.5965;
-	// 
-	// glUniform2f(uPositionMul, aspect/zoomx, 1/zoomy);
-	// glUniform2f(uPositionAdd, aspect * -translateX / zoomx, -translateY / zoomy);
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
+	glDisable(GL_BLEND);
 }
-
-void GLLabel::RenderAlso(float time)
-{
-	
-}
-
 
 
 
@@ -200,14 +166,14 @@ GLFontManager::GLFontManager()
 	this->uBezierAtlas = glGetUniformLocation(glyphShader, "uBezierAtlas");
 	this->uGridTexel = glGetUniformLocation(glyphShader, "uGridTexel");
 	this->uBezierTexel = glGetUniformLocation(glyphShader, "uBezierTexel");
-	this->uPosScale = glGetUniformLocation(glyphShader, "uPosScale");
+	this->uTransform = glGetUniformLocation(glyphShader, "uTransform");
 	
 	this->UseGlyphShader();
 	glUniform1i(this->uGridAtlas, 0);
 	glUniform1i(this->uBezierAtlas, 1);
 	glUniform2f(this->uGridTexel, 1.0/kGridAtlasSize, 1.0/kGridAtlasSize);
 	glUniform2f(this->uBezierTexel, 1.0/kBezierAtlasSize, 1.0/kBezierAtlasSize);
-	glUniform4f(this->uPosScale, 0, 0, 1, 1);
+	glUniform4f(this->uTransform, 0, 0, 1, 1);
 }
 
 GLFontManager::~GLFontManager()
@@ -690,9 +656,18 @@ void GLFontManager::UseGlyphShader()
 	glUseProgram(this->glyphShader);
 }
 
-void GLFontManager::SetShaderPosScale(glm::vec4 posScale)
+void GLFontManager::SetShaderTransform(glm::mat4 transform)
 {
-	glUniform4f(this->uPosScale, posScale.x, posScale.y, posScale.z, posScale.w);
+	glUniformMatrix4fv(this->uTransform, 1, GL_FALSE, glm::value_ptr(transform));
+}
+void GLFontManager::UseAtlasTextures(uint16_t atlasIndex)
+{
+	if(atlasIndex >= this->atlases.size())
+		return;
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].gridAtlasId);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].bezierAtlasId);
 }
 
 static char32_t readNextChar(const char **p, size_t *datalen)
@@ -888,7 +863,7 @@ const char *kGlyphVertexShader = R"(
 #version 330 core
 uniform sampler2D uBezierAtlas;
 uniform vec2 uBezierTexel;
-uniform vec4 uPosScale;
+uniform mat4 uTransform;
 
 layout(location = 0) in vec2 vPosition;
 layout(location = 1) in vec2 vData;
@@ -916,7 +891,7 @@ void main()
 	oBezierCoord = floor(vData * 0.5);
 	oNormCoord = mod(vData, 2.0);
 	oGridRect = vec4(vec2FromPixel(oBezierCoord), vec2FromPixel(oBezierCoord + vec2(1,0)));
-	gl_Position = vec4(vPosition*uPosScale.zw + uPosScale.xy, 0.0, 1.0);
+	gl_Position = uTransform*vec4(vPosition, 0.0, 1.0);
 }
 )";
 
