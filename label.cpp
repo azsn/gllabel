@@ -66,12 +66,15 @@ GLLabel::~GLLabel()
 
 void GLLabel::SetText(std::string text, FT_Face font, Color color)
 {
+	this->text.clear();
 	this->verts.clear();
+	this->appendOffset = glm::vec2(0,0);
 	this->AppendText(text, font, color);
 }
 
 void GLLabel::AppendText(std::string text, FT_Face face, Color color)
 {
+	this->text += text;
 	const char *cstr = text.c_str();
 	size_t cstrLen = text.size();
 	while(cstr[0] != '\0')
@@ -90,7 +93,7 @@ void GLLabel::AppendText(std::string text, FT_Face face, Color color)
 		if(c == '\n')
 		{
 			this->appendOffset.x = 0;
-			this->appendOffset.y = -face->height;
+			this->appendOffset.y += -face->height;
 			continue;
 		}
 		
