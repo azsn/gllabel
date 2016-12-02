@@ -1,3 +1,10 @@
+/*
+ * Aidan Shafran <zelbrium@gmail.com>, 2016.
+ * 
+ * Demo code for GLLabel. Depends on GLFW3, GLEW, GLM, FreeType2, and C++11.
+ * Makefile was created for use on Arch Linux. I haven't tested it elsewhere.
+ */
+
 #include "label.hpp"
 #include <glfw3.h>
 #include <glm/gtx/transform.hpp>
@@ -61,7 +68,7 @@ int main()
 	glEnable(GL_BLEND);
 	
 	Label = new GLLabel();
-	// Label->SetText("demo!");
+	Label->SetText("type!");
 	
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
