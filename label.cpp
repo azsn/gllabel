@@ -37,9 +37,9 @@ extern const char *kGlyphVertexShader;
 extern const char *kGlyphFragmentShader;
 }
 
-static const uint8_t kGridMaxSize = 20; // Grids can be smaller if necessary
+static const uint8_t kGridMaxSize = 20;
 static const uint16_t kGridAtlasSize = 256; // Fits exactly 1024 8x8 grids
-static const uint16_t kBezierAtlasSize = 128; // Fits around 1024 glyphs +- a few
+static const uint16_t kBezierAtlasSize = 256; // Fits around 700-1000 glyphs, depending on their curves
 static const uint8_t kAtlasChannels = 4; // Must be 4 (RGBA), otherwise code breaks
 
 GLLabel::GLLabel()
@@ -90,7 +90,7 @@ void GLLabel::AppendText(std::u32string text, FT_Face face, Color color)
 		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, text[i]);
 		
 		GlyphVertex v[6];
-		v[0].pos = this->appendOffset; // Parts of code depends on v[0] == appendOffset
+		v[0].pos = this->appendOffset;
 		v[1].pos = this->appendOffset + glm::vec2(glyph->size[0], 0);
 		v[2].pos = this->appendOffset + glm::vec2(0, glyph->size[1]);
 		v[3].pos = this->appendOffset + glm::vec2(glyph->size[0], glyph->size[1]);
