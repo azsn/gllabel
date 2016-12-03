@@ -49,7 +49,7 @@ horzAlign(GLLabel::Align::Start), vertAlign(GLLabel::Align::Start)
 	this->lastColor = {0,0,0,255};
 	this->manager = GLFontManager::GetFontManager();
 	this->lastFace = this->manager->GetDefaultFont();
-	this->manager->LoadASCII(this->lastFace);
+	// this->manager->LoadASCII(this->lastFace);
 	
 	glGenBuffers(1, &this->vertBuffer);
 }
