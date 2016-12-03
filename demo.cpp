@@ -15,6 +15,7 @@ static const uint32_t kWidth = 1536;
 static const uint32_t kHeight = 1152;
 
 static GLLabel *Label;
+bool spin = true;
 
 void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods);
 void onCharTyped(GLFWwindow *window, unsigned int codePoint);
@@ -70,6 +71,9 @@ int main()
 	Label = new GLLabel();
 	Label->SetText(U"type!");
 	
+	glm::mat4 kT = glm::translate(glm::mat4(), glm::vec3(0, 0, 0));
+	glm::mat4 kS = glm::scale(glm::mat4(), glm::vec3(kHeight/12000000.0, kWidth/12000000.0, 1.0));
+
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
 	while(!glfwWindowShouldClose(window))
@@ -79,10 +83,9 @@ int main()
 		glClearColor(160/255.0, 169/255.0, 175/255.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT);
 		
-		glm::mat4 T = glm::translate(glm::mat4(), glm::vec3(0, 0, 0));
 		glm::mat4 R = glm::rotate(glm::mat4(), time/3, glm::vec3(0.0,0.0,1.0));
 		glm::mat4 S = glm::scale(glm::mat4(), glm::vec3(sin(time)/6000.0, cos(time)/12000.0, 1.0));
-		Label->Render(time, T * R * S);
+		Label->Render(time, spin ? (kT*R*S) : (kT*kS));
 		
 		glfwPollEvents();
 		glfwSwapBuffers(window);
@@ -119,6 +122,10 @@ void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 	else if(key == GLFW_KEY_ENTER)
 	{
 		Label->AppendText(U"\n");
+	}
+	else if(key == GLFW_KEY_ESCAPE)
+	{
+		spin = !spin;
 	}
 }
 
