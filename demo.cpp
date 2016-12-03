@@ -10,6 +10,9 @@
 #include <glm/gtx/transform.hpp>
 #include <locale>
 #include <codecvt>
+#include <sstream>
+#include <iostream>
+#include <iomanip>
 
 static const uint32_t kWidth = 1536;
 static const uint32_t kHeight = 1152;
@@ -19,6 +22,7 @@ bool spin = true;
 
 void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods);
 void onCharTyped(GLFWwindow *window, unsigned int codePoint);
+std::u32string toUTF32(const std::string &s);
 
 int main()
 {
@@ -73,7 +77,10 @@ int main()
 	
 	glm::mat4 kT = glm::translate(glm::mat4(), glm::vec3(0, 0, 0));
 	glm::mat4 kS = glm::scale(glm::mat4(), glm::vec3(kHeight/12000000.0, kWidth/12000000.0, 1.0));
-
+	
+	GLLabel fpsLabel;
+	glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(), glm::vec3(-1, 0.9, 0)), glm::vec3(kHeight/30000000.0, kWidth/30000000.0, 1.0));
+	
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
 	while(!glfwWindowShouldClose(window))
@@ -87,6 +94,8 @@ int main()
 		glm::mat4 S = glm::scale(glm::mat4(), glm::vec3(sin(time)/6000.0, cos(time)/12000.0, 1.0));
 		Label->Render(time, spin ? (kT*R*S) : (kT*kS));
 		
+		fpsLabel.Render(time, fpsTransform);
+		
 		glfwPollEvents();
 		glfwSwapBuffers(window);
 		
@@ -98,7 +107,11 @@ int main()
 			double fps = fpsFrame / (endTime - fpsStartTime);
 			fpsFrame = 0;
 			fpsStartTime = endTime;
-			printf("FPS: %f\n", fps);
+			
+			std::ostringstream stream;
+			stream << "FPS: ";
+			stream << std::fixed << std::setprecision(1) << fps;
+			fpsLabel.SetText(toUTF32(stream.str()));
 		}
 	}
 	
@@ -132,4 +145,10 @@ void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 void onCharTyped(GLFWwindow *window, unsigned int codePoint)
 {
 	Label->AppendText(std::u32string(1, codePoint));
+}
+
+std::u32string toUTF32(const std::string &s)
+{
+	std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+	return conv.from_bytes(s);
 }
