@@ -32,10 +32,10 @@ public:
 	
 	struct Glyph
 	{
-		uint16_t bezierAtlasPos[2]; // XY pixel coordinates
-		uint16_t atlasIndex;
-		glm::vec2 size;// Width and height in GL units
-		float shift; // Amount to shift after character in GL units
+		uint16_t size[2]; // Width and height in FT units
+		int16_t offset[2]; // Offset of glyph in FT units
+		uint16_t bezierAtlasPos[3]; // XYZ pixel coordinates (Z being atlas index)
+		int16_t advance; // Amount to advance after character in FT units
 	};
 
 public: // TODO: private

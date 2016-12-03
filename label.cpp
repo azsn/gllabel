@@ -83,21 +83,23 @@ void GLLabel::AppendText(std::u32string text, FT_Face face, Color color)
 		if(text[i] == '\n')
 		{
 			this->appendOffset.x = 0;
-			this->appendOffset.y += -face->height;
+			this->appendOffset.y -= face->height;
 			continue;
 		}
 		
 		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, text[i]);
 		
 		GlyphVertex v[6];
-		v[0].pos = this->appendOffset;
-		v[1].pos = this->appendOffset + glm::vec2(glyph->size.x, 0);
-		v[2].pos = this->appendOffset + glm::vec2(0, glyph->size.y);
-		v[3].pos = this->appendOffset + glm::vec2(glyph->size.x, glyph->size.y);
-		v[4].pos = this->appendOffset + glm::vec2(0, glyph->size.y);
-		v[5].pos = this->appendOffset + glm::vec2(glyph->size.x, 0);
+		v[0].pos = this->appendOffset; // Parts of code depends on v[0] == appendOffset
+		v[1].pos = this->appendOffset + glm::vec2(glyph->size[0], 0);
+		v[2].pos = this->appendOffset + glm::vec2(0, glyph->size[1]);
+		v[3].pos = this->appendOffset + glm::vec2(glyph->size[0], glyph->size[1]);
+		v[4].pos = this->appendOffset + glm::vec2(0, glyph->size[1]);
+		v[5].pos = this->appendOffset + glm::vec2(glyph->size[0], 0);
 		for(unsigned int i=0;i<6;++i)
 		{
+			v[i].pos[0] += glyph->offset[0];
+			v[i].pos[1] += glyph->offset[1];
 			v[i].color = color;
 			
 			// Encode both the bezier position and the norm coord into one int
@@ -109,7 +111,7 @@ void GLLabel::AppendText(std::u32string text, FT_Face face, Color color)
 			this->verts.push_back(v[i]);
 		}
 		
-		this->appendOffset.x += glyph->shift;
+		this->appendOffset.x += glyph->advance;
 	}
 	
 	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
@@ -171,6 +173,7 @@ GLFontManager::GLFontManager()
 
 GLFontManager::~GLFontManager()
 {
+	// TODO: Destroy atlases
 	glDeleteProgram(this->glyphShader);
 	FT_Done_FreeType(this->ft);
 }
@@ -191,7 +194,7 @@ FT_Face GLFontManager::GetFontFromPath(std::string fontPath)
 }
 FT_Face GLFontManager::GetFontFromName(std::string fontName)
 {
-	std::string path; // TODO
+	std::string path = fontName; // TODO
 	return GLFontManager::GetFontFromPath(path);
 }
 FT_Face GLFontManager::GetDefaultFont()
@@ -526,9 +529,12 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 			printf("WARNING: Glyph %i has too many curves\n", point);
 
 		GLFontManager::Glyph glyph = {0};
-		glyph.atlasIndex = -1;
-		glyph.size = glm::vec2(glyphWidth, glyphHeight);
-		glyph.shift = face->glyph->advance.x;
+		glyph.bezierAtlasPos[2] = -1;
+		glyph.size[0] = glyphWidth;
+		glyph.size[1] = glyphHeight;
+		glyph.offset[0] = face->glyph->metrics.horiBearingX;
+		glyph.offset[1] = face->glyph->metrics.horiBearingY - glyphHeight;
+		glyph.advance = face->glyph->metrics.horiAdvance;
 		this->glyphs[face][point] = glyph;
 		return &this->glyphs[face][point];
 	}
@@ -607,11 +613,12 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	GLFontManager::Glyph glyph = {0};
 	glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
 	glyph.bezierAtlasPos[1] = atlas->nextBezierPos[1];
-	glyph.atlasIndex = this->atlases.size()-1;
-	glyph.size = glm::vec2(glyphWidth, glyphHeight);
-	glyph.shift = face->glyph->advance.x;
-	// glyph.offset = 
-	// glyph.kern = 
+	glyph.bezierAtlasPos[2] = this->atlases.size()-1;
+	glyph.size[0] = glyphWidth;
+	glyph.size[1] = glyphHeight;
+	glyph.offset[0] = face->glyph->metrics.horiBearingX;
+	glyph.offset[1] = face->glyph->metrics.horiBearingY - glyphHeight;
+	glyph.advance = face->glyph->metrics.horiAdvance;
 	this->glyphs[face][point] = glyph;
 	
 	atlas->nextBezierPos[0] += bezierPixelLength;
