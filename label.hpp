@@ -102,7 +102,7 @@ private:
 	std::vector<GlyphVertex> verts;
 	GLuint vertBuffer;
 	
-	std::string text;
+	std::u32string text;
 	glm::vec2 appendOffset;
 	Align horzAlign, vertAlign;
 	FT_Face lastFace;
@@ -111,18 +111,18 @@ private:
 		
 public:
 	GLLabel();
-	GLLabel(std::string text);
+	GLLabel(std::u32string text);
 	~GLLabel();
 	
-	inline std::string GetText() { return this->text; }
+	inline std::u32string GetText() { return this->text; }
 
-	inline void SetText(std::string text) { SetText(text, lastFace, lastColor); }
-	inline void SetText(std::string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
-	void SetText(std::string text, FT_Face face, Color color);
+	inline void SetText(std::u32string text) { SetText(text, lastFace, lastColor); }
+	inline void SetText(std::u32string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
+	void SetText(std::u32string text, FT_Face face, Color color);
 	
-	inline void AppendText(std::string text) { AppendText(text, lastFace, lastColor); }
-	inline void AppendText(std::string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
-	void AppendText(std::string text, FT_Face face, Color color);
+	inline void AppendText(std::u32string text) { AppendText(text, lastFace, lastColor); }
+	inline void AppendText(std::u32string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
+	void AppendText(std::u32string text, FT_Face face, Color color);
 
 	void SetHorzAlignment(Align horzAlign);
 	void SetVertAlignment(Align vertAlign);

@@ -54,7 +54,7 @@ horzAlign(GLLabel::Align::Start), vertAlign(GLLabel::Align::Start)
 	glGenBuffers(1, &this->vertBuffer);
 }
 
-GLLabel::GLLabel(std::string text) : GLLabel()
+GLLabel::GLLabel(std::u32string text) : GLLabel()
 {
 	this->SetText(text);
 }
@@ -64,7 +64,7 @@ GLLabel::~GLLabel()
 	glDeleteBuffers(1, &this->vertBuffer);
 }
 
-void GLLabel::SetText(std::string text, FT_Face font, Color color)
+void GLLabel::SetText(std::u32string text, FT_Face font, Color color)
 {
 	this->text.clear();
 	this->verts.clear();
@@ -72,32 +72,22 @@ void GLLabel::SetText(std::string text, FT_Face font, Color color)
 	this->AppendText(text, font, color);
 }
 
-void GLLabel::AppendText(std::string text, FT_Face face, Color color)
+void GLLabel::AppendText(std::u32string text, FT_Face face, Color color)
 {
 	this->text += text;
-	const char *cstr = text.c_str();
-	size_t cstrLen = text.size();
-	while(cstr[0] != '\0')
+	for(size_t i=0;i<text.size();++i)
 	{
-		// Get character code point
-		char32_t c;
-		if((c = readNextChar(&cstr, &cstrLen)) == (char32_t)-1)
-		{
-			printf("GLLabel::AppendText: Unable to parse UTF-8 string.");
-			return;
-		}
-
-		if(c == '\r')
+		if(text[i] == '\r')
 			continue;
 		
-		if(c == '\n')
+		if(text[i] == '\n')
 		{
 			this->appendOffset.x = 0;
 			this->appendOffset.y += -face->height;
 			continue;
 		}
 		
-		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, c);
+		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, text[i]);
 		
 		GlyphVertex v[6];
 		v[0].pos = this->appendOffset;

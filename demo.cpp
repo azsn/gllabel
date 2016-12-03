@@ -68,7 +68,7 @@ int main()
 	glEnable(GL_BLEND);
 	
 	Label = new GLLabel();
-	Label->SetText("type!");
+	Label->SetText(U"type!");
 	
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
@@ -112,25 +112,17 @@ void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 		
 	if(key == GLFW_KEY_BACKSPACE)
 	{
-		std::string text = Label->GetText();
+		std::u32string text = Label->GetText();
 		if(text.size() > 0)
-		{
-			std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv32;
-			std::u32string u32 = conv32.from_bytes(text);
-			u32 = u32.substr(0,u32.size()-1);
-			Label->SetText(conv32.to_bytes(u32));
-		}
+			Label->SetText(text.substr(0, text.size()-1));
 	}
 	else if(key == GLFW_KEY_ENTER)
 	{
-		Label->AppendText("\n");
+		Label->AppendText(U"\n");
 	}
 }
 
 void onCharTyped(GLFWwindow *window, unsigned int codePoint)
 {
-	std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv32;
-	std::u32string u32 = conv32.from_bytes(Label->GetText());
-	u32 += codePoint;
-	Label->SetText(conv32.to_bytes(u32));
+	Label->AppendText(std::u32string(1, codePoint));
 }
