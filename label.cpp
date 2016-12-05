@@ -43,79 +43,181 @@ static const uint16_t kBezierAtlasSize = 256; // Fits around 700-1000 glyphs, de
 static const uint8_t kAtlasChannels = 4; // Must be 4 (RGBA), otherwise code breaks
 
 GLLabel::GLLabel()
-: appendOffset(0,0), showingCaret(false),
+: showingCaret(false), caretPosition(0), prevTime(0),
 horzAlign(GLLabel::Align::Start), vertAlign(GLLabel::Align::Start)
 {
-	this->lastColor = {0,0,0,255};
+	// this->lastColor = {0,0,0,255};
 	this->manager = GLFontManager::GetFontManager();
-	this->lastFace = this->manager->GetDefaultFont();
+	// this->lastFace = this->manager->GetDefaultFont();
 	// this->manager->LoadASCII(this->lastFace);
 	
 	glGenBuffers(1, &this->vertBuffer);
-}
-
-GLLabel::GLLabel(std::u32string text) : GLLabel()
-{
-	this->SetText(text);
+	glGenBuffers(1, &this->caretBuffer);
 }
 
 GLLabel::~GLLabel()
 {
 	glDeleteBuffers(1, &this->vertBuffer);
+	glDeleteBuffers(1, &this->caretBuffer);
 }
 
-void GLLabel::SetText(std::u32string text, FT_Face font, Color color)
+void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec4 color, FT_Face face)
 {
-	this->text.clear();
-	this->verts.clear();
-	this->appendOffset = glm::vec2(0,0);
-	this->AppendText(text, font, color);
-}
+	if(index > this->text.size())
+		index = this->text.size();
+	
+	this->text.insert(index, text);
+	this->glyphs.insert(this->glyphs.begin() + index, text.size(), nullptr);
 
-void GLLabel::AppendText(std::u32string text, FT_Face face, Color color)
-{
-	this->text += text;
+	size_t prevCapacity = this->verts.capacity();
+	GlyphVertex emptyVert = {glm::vec2(), 0};
+	this->verts.insert(this->verts.begin() + index*6, text.size()*6, emptyVert);
+	
+	glm::vec2 appendOffset;
+	if(index > 0)
+	{
+		appendOffset = this->verts[(index-1)*6].pos;
+		if(this->glyphs[index-1])
+			appendOffset += -glm::vec2(this->glyphs[index-1]->offset[0], this->glyphs[index-1]->offset[1]) + glm::vec2(this->glyphs[index-1]->advance, 0);
+	}
+	glm::vec2 initialAppendOffset = appendOffset;
+	
 	for(size_t i=0;i<text.size();++i)
 	{
-		if(text[i] == '\r')
+		if(text[i] == '\r') {
+			this->verts[(index + i)*6].pos = appendOffset;
 			continue;
-		
-		if(text[i] == '\n')
-		{
-			this->appendOffset.x = 0;
-			this->appendOffset.y -= face->height;
+		}
+		else if(text[i] == '\n') {
+			appendOffset.x = 0;
+			appendOffset.y -= face->height;
+			this->verts[(index + i)*6].pos = appendOffset;
 			continue;
 		}
 		
 		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, text[i]);
+		if(!glyph) {
+			this->verts[(index + i)*6].pos = appendOffset;
+			continue;
+		}
 		
-		GlyphVertex v[6];
-		v[0].pos = this->appendOffset;
-		v[1].pos = this->appendOffset + glm::vec2(glyph->size[0], 0);
-		v[2].pos = this->appendOffset + glm::vec2(0, glyph->size[1]);
-		v[3].pos = this->appendOffset + glm::vec2(glyph->size[0], glyph->size[1]);
-		v[4].pos = this->appendOffset + glm::vec2(0, glyph->size[1]);
-		v[5].pos = this->appendOffset + glm::vec2(glyph->size[0], 0);
-		for(unsigned int i=0;i<6;++i)
+		GlyphVertex v[6]; // Insertion code depends on v[0] equaling appendOffset (therefore it is also set before continue;s above)
+		v[1].pos = glm::vec2(glyph->size[0], 0);
+		v[2].pos = glm::vec2(0, glyph->size[1]);
+		v[3].pos = glm::vec2(glyph->size[0], glyph->size[1]);
+		v[4].pos = glm::vec2(0, glyph->size[1]);
+		v[5].pos = glm::vec2(glyph->size[0], 0);
+		for(unsigned int j=0;j<6;++j)
 		{
-			v[i].pos[0] += glyph->offset[0];
-			v[i].pos[1] += glyph->offset[1];
-			v[i].color = color;
+			v[j].pos += appendOffset;
+			v[j].pos[0] += glyph->offset[0];
+			v[j].pos[1] += glyph->offset[1];
+			
+			v[j].color = {(uint8_t)(color.r*255), (uint8_t)(color.g*255), (uint8_t)(color.b*255), (uint8_t)(color.a*255)};
 			
 			// Encode both the bezier position and the norm coord into one int
 			// This theoretically could overflow, but the atlas position will
 			// never be over half the size of a uint16, so it's fine. 
-			unsigned int k = (i < 4) ? i : 6 - i;
-			v[i].data[0] = glyph->bezierAtlasPos[0]*2 + ((k & 1) ? 1 : 0);
-			v[i].data[1] = glyph->bezierAtlasPos[1]*2 + ((k > 1) ? 1 : 0);
-			this->verts.push_back(v[i]);
+			unsigned int k = (j < 4) ? j : 6 - j;
+			v[j].data[0] = glyph->bezierAtlasPos[0]*2 + ((k & 1) ? 1 : 0);
+			v[j].data[1] = glyph->bezierAtlasPos[1]*2 + ((k > 1) ? 1 : 0);
+			this->verts[(index + i)*6 + j] = v[j];
 		}
 		
-		this->appendOffset.x += glyph->advance;
+		appendOffset.x += glyph->advance;
+		this->glyphs[index + i] = glyph;
+	}
+	
+	// Shift everything after, if necessary
+	glm::vec2 deltaAppend = appendOffset - initialAppendOffset;
+	for(size_t i=index+text.size(); i<this->text.size(); ++i)
+	{
+		// If a newline is reached and no change in the y has happened, all
+		// glyphs which need to be moved have been moved.
+		if(this->text[i] == '\n')
+		{
+			if(deltaAppend.y == 0)
+				break;
+			if(deltaAppend.x < 0)
+				deltaAppend.x = 0;
+		}
+		
+		for(unsigned int j=0; j<6; ++j)
+			this->verts[i*6 + j].pos += deltaAppend;
 	}
 	
 	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
-	glBufferData(GL_ARRAY_BUFFER, this->verts.size() * sizeof(GlyphVertex), &this->verts[0], GL_DYNAMIC_DRAW);
+
+	if(this->verts.capacity() != prevCapacity)
+	{
+		// If the capacity changed, completely reupload the buffer
+		glBufferData(GL_ARRAY_BUFFER, this->verts.capacity() * sizeof(GlyphVertex), NULL, GL_DYNAMIC_DRAW);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, this->verts.size() * sizeof(GlyphVertex), &this->verts[0]);
+	}
+	else
+	{
+		// Otherwise only upload the changed parts
+		glBufferSubData(GL_ARRAY_BUFFER,
+			index*6*sizeof(GlyphVertex),
+			(this->verts.size() - index*6)*sizeof(GlyphVertex),
+			&this->verts[index*6]);
+	}
+	caretTime = 0;
+}
+
+void GLLabel::RemoveText(size_t index, size_t length)
+{
+	if(index >= this->text.size())
+		return;
+	if(index + length > this->text.size())
+		length = this->text.size() - index;
+	
+	glm::vec2 startOffset;
+	if(index > 0)
+	{
+		startOffset = this->verts[(index-1)*6].pos;
+		if(this->glyphs[index-1])
+			startOffset += -glm::vec2(this->glyphs[index-1]->offset[0], this->glyphs[index-1]->offset[1]) + glm::vec2(this->glyphs[index-1]->advance, 0);
+	}
+	
+	// printf("start offset: %f, %f\n", startOffset.x, startOffset.y);
+	
+	// Since all the glyphs between index-1 and index+length have been erased,
+	// the end offset will be at index until it gets shifted back
+	glm::vec2 endOffset;
+	// if(this->glyphs[index+length-1])
+	// {
+		endOffset = this->verts[index*6].pos;
+		if(this->glyphs[index+length-1])
+			endOffset += -glm::vec2(this->glyphs[index+length-1]->offset[0], this->glyphs[index+length-1]->offset[1]) + glm::vec2(this->glyphs[index+length-1]->advance, 0);
+	// }
+	
+	// printf("end offset: %f, %f\n", endOffset.x, endOffset.y);
+	
+	
+	this->text.erase(index, length);
+	this->glyphs.erase(this->glyphs.begin() + index, this->glyphs.begin() + (index+length));
+	this->verts.erase(this->verts.begin() + index*6, this->verts.begin() + (index+length)*6);
+	
+	glm::vec2 deltaOffset = endOffset - startOffset;
+	// printf("%f, %f\n", deltaOffset.x, deltaOffset.y);
+	// Shift everything after, if necessary
+	for(size_t i=index; i<this->text.size(); ++i)
+	{
+		if(this->text[i] == '\n')
+			deltaOffset.x = 0;
+		
+		for(unsigned int j=0; j<6; ++j)
+			this->verts[i*6 + j].pos -= deltaOffset;
+	}
+	
+	// Otherwise only upload the changed parts
+	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
+	glBufferSubData(GL_ARRAY_BUFFER,
+		index*6*sizeof(GlyphVertex),
+		(this->verts.size() - index*6)*sizeof(GlyphVertex),
+		&this->verts[index*6]);
+	caretTime = 0;
 }
 
 void GLLabel::SetHorzAlignment(Align horzAlign)
@@ -127,6 +229,9 @@ void GLLabel::SetVertAlignment(Align vertAlign)
 
 void GLLabel::Render(float time, glm::mat4 transform)
 {
+	float deltaTime = time - prevTime;
+	this->caretTime += deltaTime;
+	
 	this->manager->UseGlyphShader();
 	this->manager->UploadAtlases();
 	this->manager->UseAtlasTextures(0); // TODO: Textures based on each glyph
@@ -143,15 +248,63 @@ void GLLabel::Render(float time, glm::mat4 transform)
 	
 	glDrawArrays(GL_TRIANGLES, 0, this->verts.size());
 	
+	if(this->showingCaret && !(((int)(this->caretTime*3/2)) % 2))
+	{
+		GLFontManager::Glyph *pipe = this->manager->GetGlyphForCodepoint(this->manager->GetDefaultFont(), '|');
+		
+		size_t index = this->caretPosition;
+		
+		glm::vec2 offset;
+		if(index > 0)
+		{
+			offset = this->verts[(index-1)*6].pos;
+			if(this->glyphs[index-1])
+				offset += -glm::vec2(this->glyphs[index-1]->offset[0], this->glyphs[index-1]->offset[1]) + glm::vec2(this->glyphs[index-1]->advance, 0);
+		}
+		
+		GlyphVertex x[6];
+		x[1].pos = glm::vec2(pipe->size[0], 0);
+		x[2].pos = glm::vec2(0, pipe->size[1]);
+		x[3].pos = glm::vec2(pipe->size[0], pipe->size[1]);
+		x[4].pos = glm::vec2(0, pipe->size[1]);
+		x[5].pos = glm::vec2(pipe->size[0], 0);
+		for(unsigned int j=0;j<6;++j)
+		{
+			x[j].pos += offset;
+			x[j].pos.x -= 500;
+			x[j].pos[0] += pipe->offset[0];
+			x[j].pos[1] += pipe->offset[1];
+			
+			x[j].color = {0,0,255,100};
+			
+			// Encode both the bezier position and the norm coord into one int
+			// This theoretically could overflow, but the atlas position will
+			// never be over half the size of a uint16, so it's fine. 
+			unsigned int k = (j < 4) ? j : 6 - j;
+			x[j].data[0] = pipe->bezierAtlasPos[0]*2 + ((k & 1) ? 1 : 0);
+			x[j].data[1] = pipe->bezierAtlasPos[1]*2 + ((k > 1) ? 1 : 0);
+			// this->verts[(index + i)*6 + j] = v[j];
+		}
+		
+		glBindBuffer(GL_ARRAY_BUFFER, this->caretBuffer);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, pos));
+		glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
+		glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, color));
+	
+		glBufferData(GL_ARRAY_BUFFER, 6 * sizeof(GlyphVertex), &x[0], GL_STREAM_DRAW);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+	}
+	
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
 	glDisableVertexAttribArray(2);
 	glDisable(GL_BLEND);
+	prevTime = time;
 }
 
 
 
-GLFontManager::GLFontManager()
+GLFontManager::GLFontManager() : defaultFace(nullptr)
 {
 	if(FT_Init_FreeType(&this->ft) != FT_Err_Ok)
 		printf("Failed to load freetype\n");
@@ -200,7 +353,9 @@ FT_Face GLFontManager::GetFontFromName(std::string fontName)
 FT_Face GLFontManager::GetDefaultFont()
 {
 	// TODO
-	return GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttf");
+	if(!defaultFace)
+		defaultFace = GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttf");
+	return defaultFace;
 }
 
 GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()

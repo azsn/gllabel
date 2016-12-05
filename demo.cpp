@@ -18,7 +18,8 @@ static const uint32_t kWidth = 1536;
 static const uint32_t kHeight = 1152;
 
 static GLLabel *Label;
-bool spin = true;
+static bool spin = true;
+static FT_Face defaultFace;
 
 void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods);
 void onCharTyped(GLFWwindow *window, unsigned int codePoint);
@@ -73,7 +74,10 @@ int main()
 	glEnable(GL_BLEND);
 	
 	Label = new GLLabel();
-	Label->SetText(U"type!");
+	Label->ShowCaret(true);
+	defaultFace = GLFontManager::GetFontManager()->GetDefaultFont();
+	Label->InsertText(U"type!", 0, 1, glm::vec4(0,0,0,1), defaultFace);
+	Label->SetCaretPosition(Label->GetText().size());
 	
 	glm::mat4 kT = glm::translate(glm::mat4(), glm::vec3(0, 0, 0));
 	glm::mat4 kS = glm::scale(glm::mat4(), glm::vec3(kHeight/12000000.0, kWidth/12000000.0, 1.0));
@@ -111,7 +115,7 @@ int main()
 			std::ostringstream stream;
 			stream << "FPS: ";
 			stream << std::fixed << std::setprecision(1) << fps;
-			fpsLabel.SetText(toUTF32(stream.str()));
+			fpsLabel.SetText(toUTF32(stream.str()), 1, glm::vec4(0,0,0,1), defaultFace);
 		}
 	}
 	
@@ -129,22 +133,35 @@ void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 	if(key == GLFW_KEY_BACKSPACE)
 	{
 		std::u32string text = Label->GetText();
-		if(text.size() > 0)
-			Label->SetText(text.substr(0, text.size()-1));
+		if(text.size() > 0 && Label->GetCaretPosition() > 0)
+		{
+			Label->RemoveText(Label->GetCaretPosition()-1, 1);
+			Label->SetCaretPosition(Label->GetCaretPosition() - 1);
+		}
 	}
 	else if(key == GLFW_KEY_ENTER)
 	{
-		Label->AppendText(U"\n");
+		Label->InsertText(U"\n", Label->GetCaretPosition(), 1, glm::vec4(0,0,0,1), defaultFace);
+		Label->SetCaretPosition(Label->GetCaretPosition() + 1);
 	}
 	else if(key == GLFW_KEY_ESCAPE)
 	{
 		spin = !spin;
 	}
+	else if(key == GLFW_KEY_LEFT)
+	{
+		Label->SetCaretPosition(Label->GetCaretPosition() - 1);
+	}
+	else if(key == GLFW_KEY_RIGHT)
+	{
+		Label->SetCaretPosition(Label->GetCaretPosition() + 1);
+	}
 }
 
 void onCharTyped(GLFWwindow *window, unsigned int codePoint)
 {
-	Label->AppendText(std::u32string(1, codePoint));
+	Label->InsertText(std::u32string(1, codePoint), Label->GetCaretPosition(), 1, glm::vec4(0,0,0,1), defaultFace);
+	Label->SetCaretPosition(Label->GetCaretPosition() + 1);
 }
 
 std::u32string toUTF32(const std::string &s)

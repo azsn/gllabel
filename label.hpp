@@ -42,6 +42,7 @@ public: // TODO: private
 	std::vector<AtlasGroup> atlases;
 	std::map<FT_Face, std::map<uint32_t, Glyph>> glyphs;
 	FT_Library ft;
+	FT_Face defaultFace;
 	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uTransform;
 	
 	GLFontManager();
@@ -98,35 +99,44 @@ private:
 		Color color;
 	};
 	
-	std::shared_ptr<GLFontManager> manager;
-	std::vector<GlyphVertex> verts;
-	GLuint vertBuffer;
-	
+	// Each of these arrays store the same "set" of data, but different versions
+	// of it. Consequently, each of these will be exactly the same length
+	// (except verts, which is six times longer than the other two, since
+	// six verts per glyph).
+	// Can't put them all into one array, because verts is needed alone as a
+	// buffer to upload to the GPU, and text is needed alone mostly for GetText.
 	std::u32string text;
-	glm::vec2 appendOffset;
+	std::vector<GlyphVertex> verts;
+	std::vector<GLFontManager::Glyph *> glyphs;
+	
+	std::shared_ptr<GLFontManager> manager;
+	GLuint vertBuffer, caretBuffer;
 	Align horzAlign, vertAlign;
-	FT_Face lastFace;
-	Color lastColor;
 	bool showingCaret;
+	size_t caretPosition;
+	float prevTime, caretTime;
 		
 public:
 	GLLabel();
-	GLLabel(std::u32string text);
 	~GLLabel();
 	
-	inline std::u32string GetText() { return this->text; }
-
-	inline void SetText(std::u32string text) { SetText(text, lastFace, lastColor); }
-	inline void SetText(std::u32string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
-	void SetText(std::u32string text, FT_Face face, Color color);
+	void InsertText(std::u32string text, size_t index, float size, glm::vec4 color, FT_Face face);
+	void RemoveText(size_t index, size_t length);
+	inline void SetText(std::u32string text, float size, glm::vec4 color, FT_Face face) {
+		this->RemoveText(0, this->text.size());
+		this->InsertText(text, 0, size, color, face);
+	}
+	inline void AppendText(std::u32string text, float size, glm::vec4 color, FT_Face face) {
+		this->InsertText(text, this->text.size(), size, color, face);
+	}
 	
-	inline void AppendText(std::u32string text) { AppendText(text, lastFace, lastColor); }
-	inline void AppendText(std::u32string text, std::string face, Color color) { SetText(text, manager->GetFontFromName(face), color); }
-	void AppendText(std::u32string text, FT_Face face, Color color);
-
+	inline std::u32string GetText() { return this->text; }
+	
 	void SetHorzAlignment(Align horzAlign);
 	void SetVertAlignment(Align vertAlign);
 	void ShowCaret(bool show) { showingCaret = show; }
+	void SetCaretPosition(int position) { caretTime = 0; caretPosition = glm::clamp(position, 0, (int)text.size()); }
+	int GetCaretPosition() { return caretPosition; }
 	
 	// Render the label. Also uploads modified textures as necessary. 'time'
 	// should be passed in monotonic seconds (no specific zero time necessary).
