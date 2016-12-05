@@ -95,6 +95,12 @@ void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec
 			continue;
 		}
 		
+		else if(text[i] == '\t') {
+			appendOffset.x += 2000;
+			this->verts[(index + i)*6].pos = appendOffset;
+			continue;
+		}
+		
 		GLFontManager::Glyph *glyph = this->manager->GetGlyphForCodepoint(face, text[i]);
 		if(!glyph) {
 			this->verts[(index + i)*6].pos = appendOffset;
@@ -1071,6 +1077,8 @@ varying vec2 oBezierCoord;
 varying vec2 oNormCoord;
 varying vec4 oGridRect;
 
+layout(location = 0) out vec4 outColor;
+
 float positionAt(float p0, float p1, float p2, float t) {
 	float mt = 1.0 - t;
 	return mt*mt*p0 + 2.0*t*mt*p1 + t*t*p2;
@@ -1264,8 +1272,8 @@ void main()
     }
 
     percent = percent / float(numSS);
-	gl_FragColor = oColor;
-	gl_FragColor.a *= percent;
+	outColor = oColor;
+	outColor.a *= percent;
 	// gl_FragColor.a += 0.2;
 	
 	// // gl_FragColor.r = uBezierTexel.y*128;
