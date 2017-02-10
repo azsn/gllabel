@@ -1,5 +1,5 @@
 /*
- * Aidan Shafran <zelbrium@gmail.com>, 2016.
+*2 * Aidan Shafran <zelbrium@gmail.com>, 2016.
  * 
  * Demo code for GLLabel. Depends on GLFW3, GLEW, GLM, FreeType2, and C++11.
  * Makefile was created for use on Arch Linux. I haven't tested it elsewhere.
@@ -15,13 +15,14 @@
 #include <iomanip>
 #include <fstream>
 
-static const uint32_t kWidth = 1536;
-static const uint32_t kHeight = 1152;
+static const uint32_t kWidth = 16*70*2;//1536;
+static const uint32_t kHeight = 10*70*2;//1152;
 
 static GLLabel *Label;
 static bool spin = false;
 static FT_Face defaultFace;
 static FT_Face boldFace;
+static FT_Face cjkFace;
 static bool fuzz = true;
 static bool regular = true;
 float horizontalTransform = 0.0;
@@ -40,6 +41,16 @@ struct CPoint
 	glm::vec3 color;
 	glm::vec2 uv;
 };
+
+static glm::vec3 pt(float pt)
+{
+	static const float dpiScale = 96.0 / 72.0;
+	static const float emUnits = 1.0/2048.0;
+	static const float aspect = (float)kHeight / (float)kWidth;
+
+	float scale = emUnits * pt / 72.0;// * dpiScale / (kHeight/2.0);
+	return glm::vec3(scale * aspect, scale, 0);
+}
 
 static void setTextFile(std::string path)
 {
@@ -77,24 +88,33 @@ static void loadNextText()
 		Label->SetCaretPosition(Label->GetText().size());
 		break;
 	
+//	case 1:
+//		setTextFile("q1.txt");
+//		break;
+//	case 2:
+//		setTextFile("q2.txt");
+//		break;
+//	case 3:
+//		setTextFile("q3.txt");
+//		break;
+//	case 4:
+//		setTextFile("q4.txt");
+//		break;
 	case 1:
-		setTextFile("q1.txt");
+		//scale = 1.1;
+		horizontalTransform = 0.7;
+		verticalTransform = -0;
+		scale = 4;
+		Label->SetText(U"このテキストは日本語です.", 1, glm::vec4(0,0,0,1), cjkFace);
 		break;
 	case 2:
-		setTextFile("q2.txt");
-		break;
-	case 3:
-		setTextFile("q3.txt");
-		break;
-	case 4:
-		setTextFile("q4.txt");
-		break;
-	case 5:
 		scale = 0.7;
 		verticalTransform = 5;
 		setTextFile("label.cpp");
 		Label->SetCaretPosition(0);
 		break;
+	case 3:
+		Label->SetText(U"Rendering Vector-Based\n      Text on the GPU\n\n         Aidan Shafran", 1, glm::vec4(0.1, 0.3, 0.8, 1), boldFace);
 	}
 	
 	i++;
@@ -109,7 +129,7 @@ int main()
 		return -1;
 	}
 
-	glfwWindowHint(GLFW_SAMPLES, 4);
+	glfwWindowHint(GLFW_SAMPLES, 8);
 	glfwWindowHint(GLFW_DEPTH_BITS, 0);
 	glfwWindowHint(GLFW_STENCIL_BITS, 0);
 	// glfwWindowHint(GLFW_ALPHA_BITS, 8);
@@ -154,12 +174,13 @@ int main()
 	Label->ShowCaret(true);
 	defaultFace = GLFontManager::GetFontManager()->GetDefaultFont();
 	boldFace = GLFontManager::GetFontManager()->GetFontFromPath("/usr/share/fonts/TTF/DroidSans-Bold.ttf");
+	cjkFace = GLFontManager::GetFontManager()->GetFontFromPath("/usr/share/fonts/TTF/DroidSansJapanese.ttf");
 	loadNextText();
 	
 	glm::mat4 kT0 = glm::translate(glm::mat4(), glm::vec3(0, 0, 0));
 	
 	GLLabel fpsLabel;
-	glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(), glm::vec3(-1, 0.9, 0)), glm::vec3(kHeight/30000000.0, kWidth/30000000.0, 1.0));
+	glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(), glm::vec3(-1, 0.86, 0)), pt(10));
 	
 	GLuint fb=0;
 	glGenFramebuffers(1, &fb);
@@ -260,7 +281,7 @@ int main()
 		glClearColor(160/255.0, 169/255.0, 175/255.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT);
 		//
-		glm::mat4 S0 = glm::scale(glm::mat4(), glm::vec3(kHeight/50000000.0, kWidth/50000000.0, 1.0));
+		glm::mat4 S0 = glm::scale(glm::mat4(), pt(8));
 		glm::mat4 T = glm::translate(glm::mat4(), glm::vec3(-0.9 + horizontalTransform, verticalTransform, 0));
 		glm::mat4 R = glm::rotate(glm::mat4(), time/3, glm::vec3(0.0,0.0,1.0));
 		glm::mat4 S = glm::scale(glm::mat4(), glm::vec3(sin(time)/6000.0, cos(time)/12000.0, 1.0));

@@ -360,7 +360,7 @@ FT_Face GLFontManager::GetDefaultFont()
 {
 	// TODO
 	if(!defaultFace)
-		defaultFace = GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttf");
+		defaultFace = GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttc");
 	return defaultFace;
 }
 
@@ -652,6 +652,59 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 	return grid;
 }
 
+//#pragma pack(push, 1)
+//struct bitmapdata
+//{
+//	char magic[2];
+//	uint32_t size;
+//	uint16_t res1;
+//	uint16_t res2;
+//	uint32_t offset;
+//	
+//	uint32_t biSize;
+//	uint32_t width;
+//	uint32_t height;
+//	uint16_t planes;
+//	uint16_t bitCount;
+//	uint32_t compression;
+//	uint32_t imageSizeBytes;
+//	uint32_t xpelsPerMeter;
+//	uint32_t ypelsPerMeter;
+//	uint32_t clrUsed;
+//	uint32_t clrImportant;
+//};
+//#pragma pack(pop)
+//
+//void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
+//{
+//	FILE *f = fopen(path, "wb");
+//	
+//	bitmapdata head;
+//	head.magic[0] = 'B';
+//	head.magic[1] = 'M';
+//	head.size = sizeof(bitmapdata) + width*height*channels;
+//	head.res1 = 0;
+//	head.res2 = 0;
+//	head.offset = sizeof(bitmapdata);
+//	head.biSize = 40;
+//	head.width = width;
+//	head.height = height;
+//	head.planes = 1;
+//	head.bitCount = 8*channels;
+//	head.compression = 0;
+//	head.imageSizeBytes = width*height*channels;
+//	head.xpelsPerMeter = 0;
+//	head.ypelsPerMeter = 0;
+//	head.clrUsed = 0;
+//	head.clrImportant = 0;
+//	
+//	fwrite(&head, sizeof(head), 1, f);
+//	fwrite(data, head.imageSizeBytes, 1, f);
+//	fclose(f);
+//}
+
+
+
 GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_t point)
 {
 	auto faceIt = this->glyphs.find(face);
@@ -785,6 +838,9 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	atlas->nextBezierPos[0] += bezierPixelLength;
 	atlas->nextGridPos[0] += kGridMaxSize;
 	atlas->uploaded = false;
+
+	//writeBMP("bezierAtlas.bmp", kBezierAtlasSize, kBezierAtlasSize, 4, atlas->bezierAtlas);
+	//writeBMP("gridAtlas.bmp", kGridAtlasSize, kGridAtlasSize, 4, atlas->gridAtlas);
 	
 	return &this->glyphs[face][point];
 }
