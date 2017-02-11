@@ -13,10 +13,12 @@
  * or reposition text rendered using GLLabel without any loss of quality.
  * All that's required is a font file to load the text from. TTF works well.
  *
- * Dobbie's original code has no attached license, however his comments seem
- * to imply the code is freely available for use. I have contacted him to ask
- * for a license, but received no response. Until further notice, this code is
- * licensed under the Apache Public License v2.0.
+ * The only remaining portion of Dobbie's code is the fragment shader.
+ * Although the code had no license, comments seemed to imply the code is
+ * freely available for use. I have contacted him to ask for a license,
+ * but received no response. Therefore, all of this code except the
+ * fragment shader is under the Apache License v2.0, while the fragment
+ * shader is unlicensed until further notice.
  * (Dobbie, please let me know if you have issues with this.)
  */
 
@@ -1330,22 +1332,6 @@ void main()
     percent = percent / float(numSS);
 	outColor = oColor;
 	outColor.a *= percent;
-	// gl_FragColor.a += 0.2;
-	
-	// // gl_FragColor.r = uBezierTexel.y*128;
-	// gl_FragColor.r = oGridRect.y;
-	// // gl_FragColor.g = oGridRect.y;
-	// // gl_FragColor.b = oGridRect.z;
-	
-	// vec2 h = oGridRect.xy + oNormCoord*oGridRect.zw;
-	// vec2 l = vec2((h.x+0.5)*uGridTexel.x, (h.y+0.5)*uGridTexel.y);
-	// 
-	
-	// gl_FragColor = getPixelByXY(vec2(oBezierCoord.x + oNormCoord, oBezierCoord.y));
-
-	
-	// gl_FragColor = texture2D(uGridAtlas, l);
-	// gl_FragColor.a = 1;
 }
 )";
 }
