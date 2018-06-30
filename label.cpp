@@ -362,7 +362,7 @@ FT_Face GLFontManager::GetDefaultFont()
 {
 	// TODO
 	if(!defaultFace)
-		defaultFace = GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttc");
+		defaultFace = GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttf");
 	return defaultFace;
 }
 
