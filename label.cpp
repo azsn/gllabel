@@ -110,6 +110,7 @@ void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec
 		}
 		
 		GlyphVertex v[6]; // Insertion code depends on v[0] equaling appendOffset (therefore it is also set before continue;s above)
+		v[0].pos = glm::vec2(0, 0);
 		v[1].pos = glm::vec2(glyph->size[0], 0);
 		v[2].pos = glm::vec2(0, glyph->size[1]);
 		v[3].pos = glm::vec2(glyph->size[0], glyph->size[1]);
