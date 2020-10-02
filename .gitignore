@@ -1,3 +1,7 @@
 demo
-*.swp
+bezierAtlas.bmp
+gridAtlas.bmp
 
+*.swp
+*.dSYM
+.DS_Store

@@ -40,7 +40,7 @@ public:
 
 public: // TODO: private
 	std::vector<AtlasGroup> atlases;
-	std::map<FT_Face, std::map<uint32_t, Glyph>> glyphs;
+	std::map<FT_Face, std::map<uint32_t, Glyph> > glyphs;
 	FT_Library ft;
 	FT_Face defaultFace;
 	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uTransform;
@@ -111,7 +111,6 @@ private:
 	
 	std::shared_ptr<GLFontManager> manager;
 	GLuint vertBuffer, caretBuffer;
-	Align horzAlign, vertAlign;
 	bool showingCaret;
 	size_t caretPosition;
 	float prevTime, caretTime;

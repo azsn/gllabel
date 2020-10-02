@@ -1,5 +1,5 @@
 /*
- * Aidan Shafran <zelbrium@gmail.com>, 2016.
+ * zelbrium <zelbrium@gmail.com>, 2016.
  *
  * This code is based on Will Dobbie's WebGL vector-based text rendering (2016).
  * It can be found here:
@@ -29,7 +29,6 @@
 
 #define sq(x) ((x)*(x))
 
-static char32_t readNextChar(const char **p, size_t *datalen);
 static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC);
 
 std::shared_ptr<GLFontManager> GLFontManager::singleton = nullptr;
@@ -45,8 +44,7 @@ static const uint16_t kBezierAtlasSize = 256; // Fits around 700-1000 glyphs, de
 static const uint8_t kAtlasChannels = 4; // Must be 4 (RGBA), otherwise code breaks
 
 GLLabel::GLLabel()
-: showingCaret(false), caretPosition(0), prevTime(0),
-horzAlign(GLLabel::Align::Start), vertAlign(GLLabel::Align::Start)
+: showingCaret(false), caretPosition(0), prevTime(0)
 {
 	// this->lastColor = {0,0,0,255};
 	this->manager = GLFontManager::GetFontManager();
@@ -72,7 +70,7 @@ void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec
 	this->glyphs.insert(this->glyphs.begin() + index, text.size(), nullptr);
 
 	size_t prevCapacity = this->verts.capacity();
-	GlyphVertex emptyVert = {glm::vec2(), 0};
+	GlyphVertex emptyVert = {glm::vec2(), {0}};
 	this->verts.insert(this->verts.begin() + index*6, text.size()*6, emptyVert);
 	
 	glm::vec2 appendOffset;
@@ -220,20 +218,15 @@ void GLLabel::RemoveText(size_t index, size_t length)
 			this->verts[i*6 + j].pos -= deltaOffset;
 	}
 	
-	// Otherwise only upload the changed parts
 	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
-	glBufferSubData(GL_ARRAY_BUFFER,
-		index*6*sizeof(GlyphVertex),
-		(this->verts.size() - index*6)*sizeof(GlyphVertex),
-		&this->verts[index*6]);
-	caretTime = 0;
-}
+	if (this->verts.size() > 0) {
+		glBufferSubData(GL_ARRAY_BUFFER,
+			index*6*sizeof(GlyphVertex),
+			(this->verts.size() - index*6)*sizeof(GlyphVertex),
+			&this->verts[index*6]);
+	}
 
-void GLLabel::SetHorzAlignment(Align horzAlign)
-{	
-}
-void GLLabel::SetVertAlignment(Align vertAlign)
-{
+	caretTime = 0;
 }
 
 void GLLabel::Render(float time, glm::mat4 transform)
@@ -280,7 +273,6 @@ void GLLabel::Render(float time, glm::mat4 transform)
 		for(unsigned int j=0;j<6;++j)
 		{
 			x[j].pos += offset;
-			x[j].pos.x -= 500;
 			x[j].pos[0] += pipe->offset[0];
 			x[j].pos[1] += pipe->offset[1];
 			
@@ -330,7 +322,9 @@ GLFontManager::GLFontManager() : defaultFace(nullptr)
 	glUniform1i(this->uBezierAtlas, 1);
 	glUniform2f(this->uGridTexel, 1.0/kGridAtlasSize, 1.0/kGridAtlasSize);
 	glUniform2f(this->uBezierTexel, 1.0/kBezierAtlasSize, 1.0/kBezierAtlasSize);
-	glUniform4f(this->uTransform, 0, 0, 1, 1);
+
+	glm::mat4 iden = glm::mat4(1.0);
+	glUniformMatrix4fv(this->uTransform, 1, GL_FALSE, glm::value_ptr(iden));
 }
 
 GLFontManager::~GLFontManager()
@@ -363,7 +357,7 @@ FT_Face GLFontManager::GetDefaultFont()
 {
 	// TODO
 	if(!defaultFace)
-		defaultFace = GLFontManager::GetFontFromPath("/usr/share/fonts/noto/NotoSans-Regular.ttc");
+		defaultFace = GLFontManager::GetFontFromPath("fonts/LiberationSans-Regular.ttf");
 	return defaultFace;
 }
 
@@ -504,7 +498,7 @@ static std::vector<Bezier> GetCurvesForOutline(FT_Outline *outline)
 		metricsY = std::min(metricsY, outline->points[i].y);
 	}
 
-	OutlineDecomposeState state = {0};
+	OutlineDecomposeState state = {{0}};
 	state.curves = &curves;
 	state.metricsX = metricsX;
 	state.metricsY = metricsY;
@@ -637,8 +631,8 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 			// printf("row %i intersection [%f, %f]\n", i, start, end);
 			if(inside)
 			{
-				size_t roundS = glm::clamp(round(start), (double)0.0, (double)(gridWidth));
-				size_t roundE = glm::clamp(round(end), (double)0.0, (double)(gridWidth));
+				size_t roundS = glm::clamp(round(start), (float)0.0, (float)(gridWidth));
+				size_t roundE = glm::clamp(round(end), (float)0.0, (float)(gridWidth));
 				// printf("inside, %i, %i\n", roundS, roundE);
 				
 				for(size_t k=roundS;k<roundE;++k)
@@ -655,56 +649,56 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 	return grid;
 }
 
-//#pragma pack(push, 1)
-//struct bitmapdata
-//{
-//	char magic[2];
-//	uint32_t size;
-//	uint16_t res1;
-//	uint16_t res2;
-//	uint32_t offset;
-//	
-//	uint32_t biSize;
-//	uint32_t width;
-//	uint32_t height;
-//	uint16_t planes;
-//	uint16_t bitCount;
-//	uint32_t compression;
-//	uint32_t imageSizeBytes;
-//	uint32_t xpelsPerMeter;
-//	uint32_t ypelsPerMeter;
-//	uint32_t clrUsed;
-//	uint32_t clrImportant;
-//};
-//#pragma pack(pop)
-//
-//void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
-//{
-//	FILE *f = fopen(path, "wb");
-//	
-//	bitmapdata head;
-//	head.magic[0] = 'B';
-//	head.magic[1] = 'M';
-//	head.size = sizeof(bitmapdata) + width*height*channels;
-//	head.res1 = 0;
-//	head.res2 = 0;
-//	head.offset = sizeof(bitmapdata);
-//	head.biSize = 40;
-//	head.width = width;
-//	head.height = height;
-//	head.planes = 1;
-//	head.bitCount = 8*channels;
-//	head.compression = 0;
-//	head.imageSizeBytes = width*height*channels;
-//	head.xpelsPerMeter = 0;
-//	head.ypelsPerMeter = 0;
-//	head.clrUsed = 0;
-//	head.clrImportant = 0;
-//	
-//	fwrite(&head, sizeof(head), 1, f);
-//	fwrite(data, head.imageSizeBytes, 1, f);
-//	fclose(f);
-//}
+#pragma pack(push, 1)
+struct bitmapdata
+{
+	char magic[2];
+	uint32_t size;
+	uint16_t res1;
+	uint16_t res2;
+	uint32_t offset;
+	
+	uint32_t biSize;
+	uint32_t width;
+	uint32_t height;
+	uint16_t planes;
+	uint16_t bitCount;
+	uint32_t compression;
+	uint32_t imageSizeBytes;
+	uint32_t xpelsPerMeter;
+	uint32_t ypelsPerMeter;
+	uint32_t clrUsed;
+	uint32_t clrImportant;
+};
+#pragma pack(pop)
+
+void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channels, uint8_t *data)
+{
+	FILE *f = fopen(path, "wb");
+	
+	bitmapdata head;
+	head.magic[0] = 'B';
+	head.magic[1] = 'M';
+	head.size = sizeof(bitmapdata) + width*height*channels;
+	head.res1 = 0;
+	head.res2 = 0;
+	head.offset = sizeof(bitmapdata);
+	head.biSize = 40;
+	head.width = width;
+	head.height = height;
+	head.planes = 1;
+	head.bitCount = 8*channels;
+	head.compression = 0;
+	head.imageSizeBytes = width*height*channels;
+	head.xpelsPerMeter = 0;
+	head.ypelsPerMeter = 0;
+	head.clrUsed = 0;
+	head.clrImportant = 0;
+	
+	fwrite(&head, sizeof(head), 1, f);
+	fwrite(data, head.imageSizeBytes, 1, f);
+	fclose(f);
+}
 
 
 
@@ -745,7 +739,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		if(bezierPixelLength > kBezierAtlasSize)
 			printf("WARNING: Glyph %i has too many curves\n", point);
 
-		GLFontManager::Glyph glyph = {0};
+		GLFontManager::Glyph glyph = {{0}};
 		glyph.bezierAtlasPos[2] = -1;
 		glyph.size[0] = glyphWidth;
 		glyph.size[1] = glyphHeight;
@@ -827,7 +821,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		}
 	}
 	
-	GLFontManager::Glyph glyph = {0};
+	GLFontManager::Glyph glyph = {{0}};
 	glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
 	glyph.bezierAtlasPos[1] = atlas->nextBezierPos[1];
 	glyph.bezierAtlasPos[2] = this->atlases.size()-1;
@@ -842,8 +836,8 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	atlas->nextGridPos[0] += kGridMaxSize;
 	atlas->uploaded = false;
 
-	//writeBMP("bezierAtlas.bmp", kBezierAtlasSize, kBezierAtlasSize, 4, atlas->bezierAtlas);
-	//writeBMP("gridAtlas.bmp", kGridAtlasSize, kGridAtlasSize, 4, atlas->gridAtlas);
+	writeBMP("bezierAtlas.bmp", kBezierAtlasSize, kBezierAtlasSize, 4, atlas->bezierAtlas);
+	writeBMP("gridAtlas.bmp", kGridAtlasSize, kGridAtlasSize, 4, atlas->gridAtlas);
 	
 	return &this->glyphs[face][point];
 }
@@ -888,130 +882,6 @@ void GLFontManager::UseAtlasTextures(uint16_t atlasIndex)
 	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].gridAtlasId);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].bezierAtlasId);
-}
-
-static char32_t readNextChar(const char **p, size_t *datalen)
-{
-	// Gets the next Unicode Code Point from a UTF8 encoded string
-	// (Basically converts UTF8 to UTF32 one char at a time)
-	// http://stackoverflow.com/questions/2948308/how-do-i-read-utf-8-characters-via-a-pointer/2953960#2953960
-	
-#define IS_IN_RANGE(c, f, l)    (((c) >= (f)) && ((c) <= (l)))
-	
-	unsigned char c1, c2, *ptr = (unsigned char*)(*p);
-	char32_t uc = 0;
-	int seqlen;
-	// int datalen = ... available length of p ...;
-	
-	if( (*datalen) < 1 )
-	{
-		// malformed data, do something !!!
-		return (char32_t)-1;
-	}
-	
-	c1 = ptr[0];
-	
-	if((c1 & 0x80) == 0)
-	{
-		uc = (char32_t)(c1 & 0x7F);
-		seqlen = 1;
-	}
-	else if((c1 & 0xE0) == 0xC0)
-	{
-		uc = (char32_t)(c1 & 0x1F);
-		seqlen = 2;
-	}
-	else if((c1 & 0xF0) == 0xE0)
-	{
-		uc = (char32_t)(c1 & 0x0F);
-		seqlen = 3;
-	}
-	else if((c1 & 0xF8) == 0xF0)
-	{
-		uc = (char32_t)(c1 & 0x07);
-		seqlen = 4;
-	}
-	else
-	{
-		// malformed data, do something !!!
-		return (char32_t)-1;
-	}
-	
-	if( seqlen > (*datalen) )
-	{
-		// malformed data, do something !!!
-		return (char32_t) -1;
-	}
-	
-	for(int i = 1; i < seqlen; ++i)
-	{
-		c1 = ptr[i];
-		
-		if((c1 & 0xC0) != 0x80)
-		{
-			// malformed data, do something !!!
-			return (char32_t)-1;
-		}
-	}
-	
-	switch(seqlen)
-	{
-		case 2:
-		{
-			c1 = ptr[0];
-			
-			if(!IS_IN_RANGE(c1, 0xC2, 0xDF))
-			{
-				// malformed data, do something !!!
-				return (char32_t)-1;
-			}
-			
-			break;
-		}
-			
-		case 3:
-		{
-			c1 = ptr[0];
-			c2 = ptr[1];
-			
-			if(((c1 == 0xE0) && !IS_IN_RANGE(c2, 0xA0, 0xBF)) ||
-			   ((c1 == 0xED) && !IS_IN_RANGE(c2, 0x80, 0x9F)) ||
-			   (!IS_IN_RANGE(c1, 0xE1, 0xEC) && !IS_IN_RANGE(c1, 0xEE, 0xEF)))
-			{
-				// malformed data, do something !!!
-				return (char32_t)-1;
-			}
-			
-			break;
-		}
-			
-		case 4:
-		{
-			c1 = ptr[0];
-			c2 = ptr[1];
-			
-			if(((c1 == 0xF0) && !IS_IN_RANGE(c2, 0x90, 0xBF)) ||
-			   ((c1 == 0xF4) && !IS_IN_RANGE(c2, 0x80, 0x8F)) ||
-			   !IS_IN_RANGE(c1, 0xF0, 0xF4)) //0xF1, 0xF3) )		// Modified because originally, no 4-byte characters would pass
-			{
-				// malformed data, do something !!!
-				return (char32_t)-1;
-			}
-			
-			break;
-		}
-	}
-	
-	for(int i = 1; i < seqlen; ++i)
-	{
-		uc = ((uc << 6) | (char32_t)(ptr[i] & 0x3F));
-	}
-	
-#undef IS_IN_RANGE
-	
-	(*p) += seqlen;
-	(*datalen) += seqlen;
-	return uc;
 }
 
 static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC)
@@ -1089,10 +959,10 @@ layout(location = 0) in vec2 vPosition;
 layout(location = 1) in vec2 vData;
 layout(location = 2) in vec4 vColor;
 
-varying vec4 oColor;
-varying vec2 oBezierCoord;
-varying vec2 oNormCoord;
-varying vec4 oGridRect;
+out vec4 oColor;
+out vec2 oBezierCoord;
+out vec2 oNormCoord;
+out vec4 oGridRect;
 
 float ushortFromVec2(vec2 v)
 {
@@ -1101,7 +971,7 @@ float ushortFromVec2(vec2 v)
 
 vec2 vec2FromPixel(vec2 coord)
 {
-	vec4 pixel = texture2D(uBezierAtlas, (coord+0.5)*uBezierTexel);
+	vec4 pixel = texture(uBezierAtlas, (coord+0.5)*uBezierTexel);
 	return vec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
 }
 
@@ -1131,10 +1001,10 @@ uniform sampler2D uBezierAtlas;
 uniform vec2 uGridTexel;
 uniform vec2 uBezierTexel;
 
-varying vec4 oColor;
-varying vec2 oBezierCoord;
-varying vec2 oNormCoord;
-varying vec4 oGridRect;
+in vec4 oColor;
+in vec2 oBezierCoord;
+in vec2 oNormCoord;
+in vec4 oGridRect;
 
 layout(location = 0) out vec4 outColor;
 
@@ -1158,7 +1028,7 @@ float normalizedUshortFromVec2(vec2 v)
 
 vec4 getPixelByXY(vec2 coord)
 {
-	return texture2D(uBezierAtlas, (coord+0.5)*uBezierTexel);
+	return texture(uBezierAtlas, (coord+0.5)*uBezierTexel);
 }
 
 void fetchBezier(int coordIndex, out vec2 p[3]) {
@@ -1244,8 +1114,8 @@ void main()
     mat2 rotM = mat2(cos(theta), sin(theta), -sin(theta), cos(theta));      // note this is column major ordering
 
     ivec4 indices1;
-    indices1 = ivec4(texture2D(uGridAtlas, indicesCoord*uGridTexel) * 255.0 + 0.5);
-    // indices2 = ivec4(texture2D(uAtlasSampler, vec2(indicesCoord.x + vGridSize.x, indicesCoord.y) * uTexelSize) * 255.0 + 0.5);
+    indices1 = ivec4(texture(uGridAtlas, indicesCoord*uGridTexel) * 255.0 + 0.5);
+    // indices2 = ivec4(texture(uAtlasSampler, vec2(indicesCoord.x + vGridSize.x, indicesCoord.y) * uTexelSize) * 255.0 + 0.5);
 
     // bool moreThanFourIndices = indices1[0] < indices1[1];
 	

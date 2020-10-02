@@ -1,16 +1,18 @@
 /*
- * Aidan Shafran <zelbrium@gmail.com>, 2017.
- * 
+ * zelbrium <zelbrium@gmail.com>, 2017.
+ *
  * Demo code for GLLabel. Depends on GLFW3, GLEW, GLM, FreeType2, and C++11.
- * Currently requires Noto Sans and Droid Sans fonts installed.
- * Only tested on Arch Linux.
  */
 
 #include "label.hpp"
 #include <glfw3.h>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 #include <codecvt>
 #include <iomanip>
+#include <string>
+#include <sstream>
+#include <iostream>
 
 static uint32_t width = 1280;
 static uint32_t height = 800;
@@ -85,9 +87,9 @@ int main()
 	Label = new GLLabel();
 	Label->ShowCaret(true);
 
-	printf("Loading font files. If this crashes, you probably don't have Droid Sans and Noto Sans installed at /usr/share/fonts.\n");
+	printf("Loading font files\n");
 	defaultFace = GLFontManager::GetFontManager()->GetDefaultFont();
-	boldFace = GLFontManager::GetFontManager()->GetFontFromPath("/usr/share/fonts/TTF/DroidSans-Bold.ttf");
+	boldFace = GLFontManager::GetFontManager()->GetFontFromPath("fonts/LiberationSans-Bold.ttf");
 	
 	Label->SetText(U"Welcome to vector-based GPU text rendering!\nType whatver you want!\n\nPress LEFT/RIGHT to move cursor.\nPress ESC to toggle rotate.\nScroll vertically/horizontally to move.\nScroll while holding shift to zoom.\nRight-shift for bold.\nHold ALT to type in ", 1, glm::vec4(0.5,0,0,1), defaultFace);
 	Label->AppendText(U"r", 1, glm::vec4(0.58, 0, 0.83, 1), defaultFace);
@@ -102,6 +104,7 @@ int main()
 	
 	GLLabel fpsLabel;
 	
+	printf("Starting render\n");
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
 	while(!glfwWindowShouldClose(window))
@@ -113,15 +116,16 @@ int main()
 
 		if(spin)
 		{
-			glm::mat4 mat = glm::scale(glm::mat4(),
-				glm::vec3(sin(time)/6000.0, cos(time)/12000.0, 1.0));
+			glm::mat4 kS = glm::scale(glm::mat4(1.0), pt(9));
+			glm::mat4 mat = glm::scale(glm::mat4(1.0),
+				glm::vec3(sin(time), cos(time)/2.0, 1.0));
 			mat = glm::rotate(mat, time/3, glm::vec3(0.0,0.0,1.0));
-			Label->Render(time, mat);
+			Label->Render(time, mat*kS);
 		}
 		else
 		{
-			glm::mat4 kS = glm::scale(glm::mat4(), pt(8));
-			glm::mat4 mat = glm::scale(glm::mat4(), glm::vec3(scale, scale, 1.0));
+			glm::mat4 kS = glm::scale(glm::mat4(1.0), pt(8));
+			glm::mat4 mat = glm::scale(glm::mat4(1.0), glm::vec3(scale, scale, 1.0));
 			mat = glm::translate(mat,
 				glm::vec3(-0.9 + horizontalTransform, verticalTransform, 0));
 			Label->Render(time, mat*kS);
@@ -247,7 +251,6 @@ std::u32string toUTF32(const std::string &s)
 // Converts font points into a glm::vec3 scalar.
 static glm::vec3 pt(float pt)
 {
-	static const float dpiScale = 96.0 / 72.0;
 	static const float emUnits = 1.0/2048.0;
 	const float aspect = (float)height / (float)width;
 
