@@ -631,8 +631,8 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 			// printf("row %i intersection [%f, %f]\n", i, start, end);
 			if(inside)
 			{
-				size_t roundS = glm::clamp(round(start), (float)0.0, (float)(gridWidth));
-				size_t roundE = glm::clamp(round(end), (float)0.0, (float)(gridWidth));
+				size_t roundS = glm::clamp((float)round(start), (float)0.0, (float)(gridWidth));
+				size_t roundE = glm::clamp((float)round(end), (float)0.0, (float)(gridWidth));
 				// printf("inside, %i, %i\n", roundS, roundE);
 				
 				for(size_t k=roundS;k<roundE;++k)
