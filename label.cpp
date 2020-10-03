@@ -217,12 +217,12 @@ void GLLabel::RemoveText(size_t index, size_t length)
 	}
 
 	glBindBuffer(GL_ARRAY_BUFFER, this->vertBuffer);
-	//if (this->verts.size() > 0) {
+	if (this->verts.size() > 0) {
 		glBufferSubData(GL_ARRAY_BUFFER,
 			index*6*sizeof(GlyphVertex),
 			(this->verts.size() - index*6)*sizeof(GlyphVertex),
 			&this->verts[index*6]);
-	//}
+	}
 
 	caretTime = 0;
 }
