@@ -1,5 +1,4 @@
 #include "GridGlyph.hpp"
-#include <set>
 #include <cmath>
 
 template<class T>
@@ -9,46 +8,58 @@ constexpr const T& clamp(const T &v, const T &min, const T &max) {
 
 // Returns a list of the beziers that intersect each grid cell.
 // The returned outer vector is always size gridWidth*gridHeight.
-static std::vector<std::vector<size_t>> find_cells_intersections(
+static std::vector<std::set<size_t>> find_cells_intersections(
 	std::vector<Bezier2> &beziers,
 	Vec2 glyphSize,
 	int gridWidth,
 	int gridHeight)
 {
-	std::vector<std::vector<size_t>> cellBeziers;
+	std::vector<std::set<size_t>> cellBeziers;
 	cellBeziers.resize(gridWidth * gridHeight);
 
 	auto setgrid = [&](int x, int y, size_t bezierIndex) {
-		x = clamp(x, 0, gridWidth);
-		y = clamp(y, 0, gridHeight);
-		cellBeziers[(y * gridWidth) + x].push_back(bezierIndex);
+		x = clamp(x, 0, gridWidth - 1);
+		y = clamp(y, 0, gridHeight - 1);
+		cellBeziers[(y * gridWidth) + x].insert(bezierIndex);
 	};
 
 	for (size_t i = 0; i < beziers.size(); i++) {
+		bool anyIntersections = false;
+
 		// Every vertical grid line including edges
 		for (int x = 0; x <= gridWidth; x++) {
 			float intY[2];
-			int numInt = beziers[i].intersectVert(
+			int numInt = beziers[i].IntersectVert(
 				x * glyphSize.w / gridWidth,
 				intY);
 			for (int j = 0; j < numInt; j++) {
 				int y = intY[j] * gridHeight / glyphSize.h;
-				setgrid(x,     y, i); // left
-				setgrid(x - 1, y, i); // right
+				setgrid(x,     y, i); // right
+				setgrid(x - 1, y, i); // left
+				anyIntersections = true;
 			}
 		}
 
 		// Every horizontal grid line including edges
 		for (int y = 0; y <= gridHeight; y++) {
 			float intX[2];
-			int numInt = beziers[i].intersectHorz(
+			int numInt = beziers[i].IntersectHorz(
 				y * glyphSize.h / gridHeight,
 				intX);
 			for (int j = 0; j < numInt; j++) {
 				int x = intX[j] * gridWidth / glyphSize.w;
 				setgrid(x, y,      i); // up
 				setgrid(x, y - 1 , i); // down
+				anyIntersections = true;
 			}
+		}
+
+		// If no grid line intersections, bezier is fully contained in
+		// one cell. Mark this bezier as intersecting that cell.
+		if (!anyIntersections) {
+			int x = beziers[i].e0.x * gridWidth / glyphSize.w;
+			int y = beziers[i].e0.y * gridHeight / glyphSize.h;
+			setgrid(x, y, i);
 		}
 	}
 
@@ -74,7 +85,7 @@ static std::vector<char> find_cells_mids_inside(
 		float yMid = y + 0.5;
 		for (size_t i = 0; i < beziers.size(); i++) {
 			float intX[2];
-			int numInt = beziers[i].intersectHorz(
+			int numInt = beziers[i].IntersectHorz(
 				yMid * glyphSize.h / gridHeight,
 				intX);
 			for (int j = 0; j < numInt; j++) {

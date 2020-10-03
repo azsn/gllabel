@@ -1,13 +1,15 @@
 #pragma once
 #include "types.hpp"
 #include <vector>
+#include <set>
 
 // Reprents a grid that is "overlayed" ontop of a glyph, storing some
-// properties about each grid cell. The grid's origin is bottom-left.
+// properties about each grid cell. The grid's origin is bottom-left
+// and is stored in row-major order.
 struct GridGlyph {
-	// For each cell, a list of bezier curves (indices referring to input
-	// bezier array) that pass through that cell.
-	std::vector<std::vector<size_t>> cellBeziers;
+	// For each cell, a set of bezier curves (indices referring to
+	// input bezier array) that pass through that cell.
+	std::vector<std::set<size_t>> cellBeziers;
 
 	// For each cell, a boolean indicating whether the cell's midpoint is
 	// inside the glpyh (true) or outside (false).

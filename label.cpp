@@ -23,6 +23,7 @@
  */
 
 #include "label.hpp"
+#include "GridGlyph.hpp"
 #include <set>
 #include <fstream>
 #include <glm/gtc/type_ptr.hpp>
@@ -392,90 +393,10 @@ GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 	return &this->atlases[this->atlases.size()-1];
 }
 
-struct Bezier
-{
-	glm::vec2 e0;
-	glm::vec2 e1;
-	glm::vec2 c; // control point
-};
-
-inline bool almostEqual(float a, float b)
-{
-	return std::fabs(a-b) < 1e-5;
-}
-
-/*
- * Taking a quadratic bezier curve and a horizontal line y=Y, finds the x
- * values of intersection of the line and the curve. Returns 0, 1, or 2,
- * depending on how many intersections were found, and outX is filled with
- * that many x values of intersection.
- *
- * Quadratic bezier curves are represented by the function
- * F(t) = (1-t)^2*A + 2*t*(1-t)*B + t^2*C
- * where F is a vector function, A and C are the endpoint vectors, C is
- * the control point vector, and 0 <= t <= 1.
- * Solving the bezier function for t gives:
- * t = (A - B [+-] sqrt(y*a + B^2 - A*C))/a , where  a = A - 2B + C.
- * http://www.wolframalpha.com/input/?i=y+%3D+(1-t)%5E2a+%2B+2t(1-t)*b+%2B+t%5E2*c+solve+for+t
- */
-static int bezierIntersectHorz(Bezier *curve, glm::vec2 *outX, float Y)
-{
-	glm::vec2 A = curve->e0;
-	glm::vec2 B = curve->c;
-	glm::vec2 C = curve->e1;
-	int i = 0;
-
-#define T_VALID(t) ((t) <= 1 && (t) >= 0)
-#define X_FROM_T(t) ((1-(t))*(1-(t))*curve->e0.x + 2*(t)*(1-(t))*curve->c.x + (t)*(t)*curve->e1.x)
-
-	// Parts of the bezier function solved for t
-	float a = curve->e0.y - 2*curve->c.y + curve->e1.y;
-
-	// In the condition that a=0, the standard formulas won't work
-	if (almostEqual(a, 0)) {
-		float t = (2*B.y - C.y - Y) / (2*(B.y-C.y));
-		if (T_VALID(t)) {
-			(*outX)[i++] = X_FROM_T(t);
-		}
-		return i;
-	}
-
-	float sqrtTerm = sqrt(Y*a + B.y*B.y - A.y*C.y);
-
-	float t = (A.y - B.y + sqrtTerm) / a;
-	if (T_VALID(t)) {
-		(*outX)[i++] = X_FROM_T(t);
-	}
-
-	t = (A.y - B.y - sqrtTerm) / a;
-	if (T_VALID(t)) {
-		(*outX)[i++] = X_FROM_T(t);
-	}
-
-	return i;
-
-#undef X_FROM_T
-#undef T_VALID
-}
-
-/*
- * Same as bezierIntersectHorz, except finds the y values of an intersection
- * with the vertical line x=X.
- */
-static int bezierIntersectVert(Bezier *curve, glm::vec2 *outY, float X)
-{
-	Bezier inverse = {
-		glm::vec2(curve->e0.y, curve->e0.x),
-		glm::vec2(curve->e1.y, curve->e1.x),
-		glm::vec2(curve->c.y, curve->c.x)
-	};
-	return bezierIntersectHorz(&inverse, outY, X);
-}
-
 struct OutlineDecomposeState
 {
 	FT_Vector prevPoint;
-	std::vector<Bezier> *curves;
+	std::vector<Bezier2> *curves;
 	FT_Pos metricsX;
 	FT_Pos metricsY;
 };
@@ -484,9 +405,9 @@ struct OutlineDecomposeState
  * Uses FreeType's outline decomposing to convert an outline into a vector
  * of beziers. This just makes working with the outline easier.
  */
-static std::vector<Bezier> GetCurvesForOutline(FT_Outline *outline)
+static std::vector<Bezier2> GetCurvesForOutline(FT_Outline *outline)
 {
-	std::vector<Bezier> curves;
+	std::vector<Bezier2> curves;
 
 	if (outline->n_points <= 0) {
 		return curves;
@@ -513,20 +434,20 @@ static std::vector<Bezier> GetCurvesForOutline(FT_Outline *outline)
 	};
 	funcs.line_to = [](const FT_Vector *to, void *user) -> int {
 		auto state = static_cast<OutlineDecomposeState *>(user);
-		Bezier b;
-		b.e0 = glm::vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
+		Bezier2 b;
+		b.e0 = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
 		b.c = b.e0;
-		b.e1 = glm::vec2(to->x - state->metricsX, to->y - state->metricsY);
+		b.e1 = Vec2(to->x - state->metricsX, to->y - state->metricsY);
 		state->curves->push_back(b);
 		state->prevPoint = *to;
 		return 0;
 	};
 	funcs.conic_to = [](const FT_Vector *control, const FT_Vector *to, void *user) -> int {
 		auto state = static_cast<OutlineDecomposeState *>(user);
-		Bezier b;
-		b.e0 = glm::vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
-		b.c = glm::vec2(control->x - state->metricsX, control->y - state->metricsY);
-		b.e1 = glm::vec2(to->x - state->metricsX, to->y - state->metricsY);
+		Bezier2 b;
+		b.e0 = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
+		b.c = Vec2(control->x - state->metricsX, control->y - state->metricsY);
+		b.e1 = Vec2(to->x - state->metricsX, to->y - state->metricsY);
 		state->curves->push_back(b);
 		state->prevPoint = *to;
 		return 0;
@@ -539,111 +460,8 @@ static std::vector<Bezier> GetCurvesForOutline(FT_Outline *outline)
 	if (FT_Outline_Decompose(outline, &funcs, &state) == 0) {
 		return curves;
 	}
-	return std::vector<Bezier>();
+	return std::vector<Bezier2>();
 }
-
-/*
- * Using the outline curves of a glyph, creates a square grid of edge length
- * GLLabel::kGridMaxSize where each cell stores all of the indices of the
- * curves that intersect that cell.
- * The grid is returned as a lineariezed 2D array.
- */
-static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &curves, FT_Pos glyphWidth, FT_Pos glyphHeight, uint8_t &gridWidth, uint8_t &gridHeight)
-{
-	gridWidth = kGridMaxSize;
-	gridHeight = kGridMaxSize;
-
-	std::vector<std::set<uint16_t>> grid;
-	grid.resize(gridWidth * gridHeight);
-
-	// For each curve, for each vertical and horizontal grid line
-	// (including edges), determine where the curve intersects. Each
-	// intersection affects two cells, and each curve can intersect a line
-	// up to twice, for a maximum of four cells per line per curve.
-	for (uint32_t i = 0; i < curves.size(); i++) {
-		// TODO: The std::set insert operation is really slow?
-		// It appears that this operation nearly doubles the runtime
-		// of calculateGridForGlyph.
-		#define SETGRID(x, y) { grid[(y)*gridWidth+(x)].insert(i); }
-
-		// If a curve intersects no grid lines, it won't be included. So
-		// make sure the cell the the curve starts in is included
-		SETGRID(std::min((unsigned long)(curves[i].e0.x * gridWidth / glyphWidth), (unsigned long)gridWidth-1), std::min((unsigned long)(curves[i].e0.y * gridHeight / glyphHeight), (unsigned long)gridHeight-1));
-
-		for (size_t j = 0; j <= gridWidth; j++) {
-			glm::vec2 intY(0, 0);
-			int num = bezierIntersectVert(&curves[i], &intY, j * glyphWidth / gridWidth);
-
-			for (int z = 0; z < num; z++) {
-				uint8_t y = (uint8_t)glm::clamp((signed long)(intY[z] * gridHeight / glyphHeight), 0L, (signed long)gridHeight-1);
-				uint8_t x1 = (size_t)std::max((signed long)j-1, (signed long)0);
-				uint8_t x2 = (size_t)std::min((signed long)j, (signed long)gridWidth-1);
-				SETGRID(x1, y);
-				SETGRID(x2, y);
-			}
-		}
-
-		for (size_t j = 0; j <= gridHeight; j++) {
-			glm::vec2 intX(0, 0);
-			int num = bezierIntersectHorz(&curves[i], &intX, j * glyphHeight / gridHeight);
-
-			for (int z = 0; z < num; z++) {
-				uint8_t x = (uint8_t)glm::clamp((signed long)(intX[z] * gridWidth / glyphWidth), 0L, (signed long)gridWidth-1);
-				uint8_t y1 = (size_t)std::max((signed long)j-1, (signed long)0);
-				uint8_t y2 = (size_t)std::min((signed long)j, (signed long)gridHeight-1);
-				SETGRID(x, y1);
-				SETGRID(x, y2);
-			}
-		}
-		#undef SETGRID
-	}
-
-	// In order for the shader to know whether a cell that has no intersections
-	// is within or outside the glyph, a flag is stored in each cell telling
-	// whether the center of the cell is inside or not.
-
-	std::set<float> intersections; // Sets keep ordered (avoids calling sort)
-	for (size_t i = 0; i < gridHeight; i++) {
-		intersections.clear();
-
-		float Y = i + 0.5; // Test midpoints of cells
-		for (size_t j = 0; j < curves.size(); j++) {
-			glm::vec2 intX(0, 0);
-			int num = bezierIntersectHorz(&curves[j], &intX, Y * glyphHeight / gridHeight);
-			for (int z = 0; z < num; z++) {
-				intersections.insert(intX[z] * gridWidth / glyphWidth);
-			}
-		}
-
-		// TODO: Necessary? Should never be required on a closed curve.
-		// (Make sure last intersection is >= gridWidth)
-		//if (*intersections.rbegin() < gridWidth) {
-		//	intersections.insert(gridWidth);
-		//}
-
-		bool inside = false;
-		float start = 0;
-		for (auto it = intersections.begin(); it != intersections.end(); it++) {
-			float end = *it;
-			// printf("row %i intersection [%f, %f]\n", i, start, end);
-			if (inside) {
-				size_t roundS = glm::clamp((float)round(start), (float)0.0, (float)(gridWidth));
-				size_t roundE = glm::clamp((float)round(end), (float)0.0, (float)(gridWidth));
-				// printf("inside, %i, %i\n", roundS, roundE);
-
-				for (size_t k = roundS; k < roundE; k++) {
-					size_t gridIndex = i*gridWidth + k;
-					grid[gridIndex].insert(254); // Becomes 255 after +1 to remove 0s
-				}
-			}
-			inside = !inside;
-			start = end;
-		}
-	}
-
-	return grid;
-}
-
 
 #pragma pack(push, 1)
 struct bitmapdata
@@ -719,10 +537,11 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 
 	FT_Pos glyphWidth = face->glyph->metrics.width;
 	FT_Pos glyphHeight = face->glyph->metrics.height;
-	uint8_t gridWidth, gridHeight;
+	uint8_t gridWidth = kGridMaxSize;
+	uint8_t gridHeight = kGridMaxSize;
 
-	std::vector<Bezier> curves = GetCurvesForOutline(&face->glyph->outline);
-	std::vector<std::set<uint16_t>> grid = GetGridForCurves(curves, glyphWidth, glyphHeight, gridWidth, gridHeight);
+	std::vector<Bezier2> curves = GetCurvesForOutline(&face->glyph->outline);
+	GridGlyph grid(curves, Vec2(glyphWidth, glyphHeight), gridWidth, gridHeight);
 
 	// Although the data is represented as a 32bit texture, it's actually
 	// two 16bit ints per pixel, each with an x and y coordinate for
@@ -730,7 +549,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	// Plus two pixels for grid position information
 	uint16_t bezierPixelLength = 2 + curves.size()*3;
 
-	if (curves.size() == 0 || grid.size() == 0 || bezierPixelLength > kBezierAtlasSize) {
+	if (curves.size() == 0 || bezierPixelLength > kBezierAtlasSize) {
 		if (bezierPixelLength > kBezierAtlasSize) {
 			printf("WARNING: Glyph %i has too many curves\n", point);
 		}
@@ -796,8 +615,14 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 			size_t gridIdx = y*gridWidth + x;
 			size_t gridmapIdx = ((atlas->nextGridPos[1]+y)*kGridAtlasSize + (atlas->nextGridPos[0]+x))*kAtlasChannels;
 
+			auto beziers = grid.cellBeziers[gridIdx];
+
+			if (grid.cellMids[gridIdx]) {
+				beziers.insert(254);
+			}
+
 			size_t j = 0;
-			for (auto it = grid[gridIdx].begin(); it != grid[gridIdx].end(); it++) {
+			for (auto it = beziers.begin(); it != beziers.end(); it++) {
 				if (j >= kAtlasChannels) { // TODO: More than four beziers per pixel?
 					printf("MORE THAN 4 on %i\n", point);
 					break;
@@ -805,6 +630,21 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 				atlas->gridAtlas[gridmapIdx+j] = *it + 1;
 				j++;
 			}
+
+			// TODO
+			//// Beziers are sorted, so store the midpoint flag by
+			//// changing the order of the first two beziers
+			//// (midpoint is inside if swapped)
+			//if (grid.cellMids[gridIdx]) {
+			//	if (beziers->size() == 0) {
+			//		// If no beziers, nothing to swap, so use 255
+			//		atlas->gridAtlas[gridmapIdx] = 255;
+			//	} else {
+			//		uint8_t tmp = atlas->gridAtlas[gridmapIdx];
+			//		atlas->gridAtlas[gridmapIdx] = atlas->gridAtlas[gridmapIdx+1];
+			//		atlas->gridAtlas[gridmapIdx+1] = tmp;
+			//	}
+			//}
 		}
 	}
 

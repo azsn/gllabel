@@ -20,7 +20,7 @@ inline bool almostEqual(float a, float b)
  * t = (A - B [+-] sqrt(y*a + B^2 - A*C))/a , where  a = A - 2B + C.
  * http://www.wolframalpha.com/input/?i=y+%3D+(1-t)%5E2a+%2B+2t(1-t)*b+%2B+t%5E2*c+solve+for+t
  */
-int Bezier2::intersectHorz(float Y, float outX[2])
+int Bezier2::IntersectHorz(float Y, float outX[2])
 {
 	Vec2 A = this->e0;
 	Vec2 B = this->c;
@@ -61,16 +61,16 @@ int Bezier2::intersectHorz(float Y, float outX[2])
 }
 
 /*
- * Same as bezierIntersectHorz, except finds the y values of an intersection
+ * Same as IntersectHorz, except finds the y values of an intersection
  * with the vertical line x=X.
  */
-int Bezier2::intersectVert(float X, float outY[2])
+int Bezier2::IntersectVert(float X, float outY[2])
 {
 	Bezier2 inverse = {
 		{ this->e0.y, this->e0.x },
 		{ this->e1.y, this->e1.x },
 		{ this->c.y, this->c.x }
 	};
-	return inverse.intersectHorz(X, outY);
+	return inverse.IntersectHorz(X, outY);
 }
 

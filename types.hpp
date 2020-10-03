@@ -8,6 +8,7 @@ struct Vec2 {
 		float h;
 	};
 
+	Vec2(): x(0), y(0) { }
 	Vec2(float x, float y): x(x), y(y) { }
 };
 
@@ -17,7 +18,7 @@ struct Bezier2 {
 	Vec2 e1;
 	Vec2 c; // control point
 
-	int intersectHorz(float y, float outX[2]);
-	int intersectVert(float x, float outY[2]);
+	int IntersectHorz(float y, float outX[2]);
+	int IntersectVert(float x, float outY[2]);
 };
 
