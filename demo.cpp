@@ -126,7 +126,7 @@ int main()
 		}
 
 		// Window size might change, so recalculate this (and other pt() calls)
-		glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(), glm::vec3(-1, 0.86, 0)), pt(10));
+		glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(-1, 0.86, 0)), pt(10));
 		fpsLabel.Render(time, fpsTransform);
 
 		glfwPollEvents();

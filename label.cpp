@@ -74,7 +74,7 @@ void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec
 	GlyphVertex emptyVert = {glm::vec2(), {0}};
 	this->verts.insert(this->verts.begin() + index*6, text.size()*6, emptyVert);
 
-	glm::vec2 appendOffset;
+	glm::vec2 appendOffset(0, 0);
 	if (index > 0) {
 		appendOffset = this->verts[(index-1)*6].pos;
 		if (this->glyphs[index-1]) {
@@ -175,7 +175,7 @@ void GLLabel::RemoveText(size_t index, size_t length)
 		length = this->text.size() - index;
 	}
 
-	glm::vec2 startOffset;
+	glm::vec2 startOffset(0, 0);
 	if (index > 0) {
 		startOffset = this->verts[(index-1)*6].pos;
 		if (this->glyphs[index-1]) {
@@ -187,7 +187,7 @@ void GLLabel::RemoveText(size_t index, size_t length)
 
 	// Since all the glyphs between index-1 and index+length have been erased,
 	// the end offset will be at index until it gets shifted back
-	glm::vec2 endOffset;
+	glm::vec2 endOffset(0, 0);
 	// if (this->glyphs[index+length-1])
 	// {
 		endOffset = this->verts[index*6].pos;
@@ -253,7 +253,7 @@ void GLLabel::Render(float time, glm::mat4 transform)
 
 		size_t index = this->caretPosition;
 
-		glm::vec2 offset;
+		glm::vec2 offset(0, 0);
 		if (index > 0) {
 			offset = this->verts[(index-1)*6].pos;
 			if (this->glyphs[index-1]) {
@@ -262,6 +262,7 @@ void GLLabel::Render(float time, glm::mat4 transform)
 		}
 
 		GlyphVertex x[6];
+		x[0].pos = glm::vec2(0, 0);
 		x[1].pos = glm::vec2(pipe->size[0], 0);
 		x[2].pos = glm::vec2(0, pipe->size[1]);
 		x[3].pos = glm::vec2(pipe->size[0], pipe->size[1]);
@@ -570,7 +571,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 		SETGRID(std::min((unsigned long)(curves[i].e0.x * gridWidth / glyphWidth), (unsigned long)gridWidth-1), std::min((unsigned long)(curves[i].e0.y * gridHeight / glyphHeight), (unsigned long)gridHeight-1));
 
 		for (size_t j = 0; j <= gridWidth; j++) {
-			glm::vec2 intY;
+			glm::vec2 intY(0, 0);
 			int num = bezierIntersectVert(&curves[i], &intY, j * glyphWidth / gridWidth);
 
 			for (int z = 0; z < num; z++) {
@@ -583,7 +584,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 		}
 
 		for (size_t j = 0; j <= gridHeight; j++) {
-			glm::vec2 intX;
+			glm::vec2 intX(0, 0);
 			int num = bezierIntersectHorz(&curves[i], &intX, j * glyphHeight / gridHeight);
 
 			for (int z = 0; z < num; z++) {
@@ -607,7 +608,7 @@ static std::vector<std::set<uint16_t>> GetGridForCurves(std::vector<Bezier> &cur
 
 		float Y = i + 0.5; // Test midpoints of cells
 		for (size_t j = 0; j < curves.size(); j++) {
-			glm::vec2 intX;
+			glm::vec2 intX(0, 0);
 			int num = bezierIntersectHorz(&curves[j], &intX, Y * glyphHeight / gridHeight);
 			for (int z = 0; z < num; z++) {
 				intersections.insert(intX[z] * gridWidth / glyphWidth);
