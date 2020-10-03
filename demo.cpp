@@ -21,8 +21,8 @@ static GLLabel *Label;
 static bool spin = false;
 static FT_Face defaultFace;
 static FT_Face boldFace;
-float horizontalTransform = 0.0;
-float verticalTransform = 0.8;
+float horizontalTransform = -0.9;
+float verticalTransform = 0.6;
 float scale = 1;
 
 void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods);
@@ -100,6 +100,7 @@ int main()
 	Label->SetCaretPosition(Label->GetText().size());
 
 	GLLabel fpsLabel;
+	fpsLabel.SetText(toUTF32("FPS:"), 1, glm::vec4(0,0,0,1), defaultFace);
 
 	printf("Starting render\n");
 
@@ -111,30 +112,37 @@ int main()
 		glClearColor(160/255.0, 169/255.0, 175/255.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+		glm::vec3 userTranslation(horizontalTransform, verticalTransform, 0);
+		glm::vec3 userScale(scale, scale, 1.0);
+
+		glm::mat4 textMat(1.0);
+		textMat = glm::scale(textMat, userScale);
+		textMat = glm::translate(textMat, userTranslation);
 		if (spin) {
-			glm::mat4 kS = glm::scale(glm::mat4(1.0), pt(9));
-			glm::mat4 mat = glm::scale(glm::mat4(1.0),
-				glm::vec3(sin(time), cos(time)/2.0, 1.0));
-			mat = glm::rotate(mat, time/3, glm::vec3(0.0,0.0,1.0));
-			Label->Render(time, mat*kS);
-		} else {
-			glm::mat4 kS = glm::scale(glm::mat4(1.0), pt(8));
-			glm::mat4 mat = glm::scale(glm::mat4(1.0), glm::vec3(scale, scale, 1.0));
-			mat = glm::translate(mat,
-				glm::vec3(-0.9 + horizontalTransform, verticalTransform, 0));
-			Label->Render(time, mat*kS);
+			textMat = glm::rotate(textMat, time/3, glm::vec3(0.0,0.0,1.0));
+			textMat = glm::scale(textMat, glm::vec3(sin(time)*2, cos(time), 1.0));
 		}
+		textMat = glm::scale(textMat, pt(8));
+		Label->Render(time, textMat);
 
 		// Window size might change, so recalculate this (and other pt() calls)
-		glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(-1, 0.86, 0)), pt(10));
-		fpsLabel.Render(time, fpsTransform);
+		glm::mat4 fpsMat(1.0);
+		fpsMat = glm::scale(fpsMat, userScale);
+		fpsMat = glm::translate(fpsMat, userTranslation + glm::vec3(0, 0.2, 0));
+		if (spin) {
+			fpsMat = glm::translate(fpsMat, glm::vec3(0.1, 0, 0));
+			fpsMat = glm::rotate(fpsMat, time*4, glm::vec3(0,0,1));
+			fpsMat = glm::translate(fpsMat, glm::vec3(-0.1, 0, 0));
+		}
+		fpsMat = glm::scale(fpsMat, pt(7));
+		fpsLabel.Render(time, fpsMat);
 
 		glfwPollEvents();
 		glfwSwapBuffers(window);
 
 		// FPS Counter
 		fpsFrame ++;
-		if (fpsFrame >= 20) {
+		if (fpsFrame >= 30) {
 			double endTime = glfwGetTime();
 			double fps = fpsFrame / (endTime - fpsStartTime);
 			fpsFrame = 0;
