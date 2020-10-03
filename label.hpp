@@ -25,11 +25,11 @@ public:
 		// where it is used in the code.
 		GLuint bezierAtlasId, gridAtlasId;
 		uint8_t *bezierAtlas, *gridAtlas;
-		uint16_t nextBezierPos[2], nextGridPos[2]; // XY pixel coordinates 
+		uint16_t nextBezierPos[2], nextGridPos[2]; // XY pixel coordinates
 		bool full; // For faster checking
 		bool uploaded;
 	};
-	
+
 	struct Glyph
 	{
 		uint16_t size[2]; // Width and height in FT units
@@ -44,25 +44,25 @@ public: // TODO: private
 	FT_Library ft;
 	FT_Face defaultFace;
 	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uTransform;
-	
+
 	GLFontManager();
-	
+
 	AtlasGroup * GetOpenAtlasGroup();
-	
+
 public:
 	~GLFontManager();
 
 	static std::shared_ptr<GLFontManager> singleton;
-	static std::shared_ptr<GLFontManager> GetFontManager();	
-	
+	static std::shared_ptr<GLFontManager> GetFontManager();
+
 	FT_Face GetFontFromPath(std::string fontPath);
 	FT_Face GetFontFromName(std::string fontName);
 	FT_Face GetDefaultFont();
-	
+
 	Glyph * GetGlyphForCodepoint(FT_Face face, uint32_t point);
 	void LoadASCII(FT_Face face);
 	void UploadAtlases();
-	
+
 	void UseGlyphShader();
 	void SetShaderTransform(glm::mat4 transform);
 	void UseAtlasTextures(uint16_t atlasIndex);
@@ -77,28 +77,28 @@ public:
 		Center,
 		End
 	};
-	
+
 	struct Color
 	{
 		uint8_t r,g,b,a;
 	};
-	
+
 private:
 	struct GlyphVertex
 	{
 		// XY coords of the vertex
 		glm::vec2 pos;
-		
+
 		// The UV coords of the data for this glyph in the bezier atlas
 		// Also contains a vertex-dependent norm coordiate by encoding:
 		// encode: data[n] = coord[n] * 2 + norm[n]
 		// decode: norm[n] = data[n] % 2,  coord[n] = int(data[n] / 2)
 		uint16_t data[2];
-		
+
 		// RGBA color [0,255]
 		Color color;
 	};
-	
+
 	// Each of these arrays store the same "set" of data, but different versions
 	// of it. Consequently, each of these will be exactly the same length
 	// (except verts, which is six times longer than the other two, since
@@ -108,17 +108,17 @@ private:
 	std::u32string text;
 	std::vector<GlyphVertex> verts;
 	std::vector<GLFontManager::Glyph *> glyphs;
-	
+
 	std::shared_ptr<GLFontManager> manager;
 	GLuint vertBuffer, caretBuffer;
 	bool showingCaret;
 	size_t caretPosition;
 	float prevTime, caretTime;
-		
+
 public:
 	GLLabel();
 	~GLLabel();
-	
+
 	void InsertText(std::u32string text, size_t index, float size, glm::vec4 color, FT_Face face);
 	void RemoveText(size_t index, size_t length);
 	inline void SetText(std::u32string text, float size, glm::vec4 color, FT_Face face) {
@@ -128,15 +128,15 @@ public:
 	inline void AppendText(std::u32string text, float size, glm::vec4 color, FT_Face face) {
 		this->InsertText(text, this->text.size(), size, color, face);
 	}
-	
+
 	inline std::u32string GetText() { return this->text; }
-	
+
 	void SetHorzAlignment(Align horzAlign);
 	void SetVertAlignment(Align vertAlign);
 	void ShowCaret(bool show) { showingCaret = show; }
 	void SetCaretPosition(int position) { caretTime = 0; caretPosition = glm::clamp(position, 0, (int)text.size()); }
 	int GetCaretPosition() { return caretPosition; }
-	
+
 	// Render the label. Also uploads modified textures as necessary. 'time'
 	// should be passed in monotonic seconds (no specific zero time necessary).
 	void Render(float time, glm::mat4 transform);

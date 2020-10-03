@@ -35,8 +35,7 @@ static glm::vec3 pt(float pt);
 int main()
 {
 	// Create a window
-	if(!glfwInit())
-	{
+	if (!glfwInit()) {
 		fprintf(stderr, "Failed to initialize GLFW.\n");
 		return -1;
 	}
@@ -49,40 +48,38 @@ int main()
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	
+
 	GLFWwindow *window = glfwCreateWindow(width, height, "Vector-Based GPU Text Rendering", NULL, NULL);
-	if(!window)
-	{
+	if (!window) {
 		fprintf(stderr, "Failed to create GLFW window.");
 		glfwTerminate();
 		return -1;
 	}
-	
+
 	glfwSetKeyCallback(window, onKeyPress);
 	glfwSetCharModsCallback(window, onCharTyped);
 	glfwSetScrollCallback(window, onScroll);
 	glfwSetWindowSizeCallback(window, onResize);
-	
+
 	// Create OpenGL context
 	glfwMakeContextCurrent(window);
 	glewExperimental = true;
-	if(glewInit() != GLEW_OK)
-	{
+	if (glewInit() != GLEW_OK) {
 		fprintf(stderr, "Failed to initialize GLEW.\n");
 		glfwDestroyWindow(window);
 		glfwTerminate();
 		return -1;
 	}
-	
+
 	printf("GL Version: %s\n", glGetString(GL_VERSION));
 
 	GLuint vertexArrayId;
 	glGenVertexArrays(1, &vertexArrayId);
 	glBindVertexArray(vertexArrayId);
-	
+
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_BLEND);
-	
+
 	// Create new label
 	Label = new GLLabel();
 	Label->ShowCaret(true);
@@ -90,7 +87,7 @@ int main()
 	printf("Loading font files\n");
 	defaultFace = GLFontManager::GetFontManager()->GetDefaultFont();
 	boldFace = GLFontManager::GetFontManager()->GetFontFromPath("fonts/LiberationSans-Bold.ttf");
-	
+
 	Label->SetText(U"Welcome to vector-based GPU text rendering!\nType whatever you want!\n\nPress LEFT/RIGHT to move cursor.\nPress ESC to toggle rotate.\nScroll vertically/horizontally to move.\nScroll while holding shift to zoom.\nRight-shift for bold.\nHold ALT to type in ", 1, glm::vec4(0.5,0,0,1), defaultFace);
 	Label->AppendText(U"r", 1, glm::vec4(0.58, 0, 0.83, 1), defaultFace);
 	Label->AppendText(U"a", 1, glm::vec4(0.29, 0, 0.51, 1), defaultFace);
@@ -101,59 +98,55 @@ int main()
 	Label->AppendText(U"w", 1, glm::vec4(1,    0, 0,    1), defaultFace);
 	Label->AppendText(U"!\n", 1, glm::vec4(0.5,0,0,1), defaultFace);
 	Label->SetCaretPosition(Label->GetText().size());
-	
+
 	GLLabel fpsLabel;
-	
+
 	printf("Starting render\n");
+
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
-	while(!glfwWindowShouldClose(window))
-	{
+	while (!glfwWindowShouldClose(window)) {
 		float time = glfwGetTime();
-		
+
 		glClearColor(160/255.0, 169/255.0, 175/255.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		if(spin)
-		{
+		if (spin) {
 			glm::mat4 kS = glm::scale(glm::mat4(1.0), pt(9));
 			glm::mat4 mat = glm::scale(glm::mat4(1.0),
 				glm::vec3(sin(time), cos(time)/2.0, 1.0));
 			mat = glm::rotate(mat, time/3, glm::vec3(0.0,0.0,1.0));
 			Label->Render(time, mat*kS);
-		}
-		else
-		{
+		} else {
 			glm::mat4 kS = glm::scale(glm::mat4(1.0), pt(8));
 			glm::mat4 mat = glm::scale(glm::mat4(1.0), glm::vec3(scale, scale, 1.0));
 			mat = glm::translate(mat,
 				glm::vec3(-0.9 + horizontalTransform, verticalTransform, 0));
 			Label->Render(time, mat*kS);
 		}
-		
+
 		// Window size might change, so recalculate this (and other pt() calls)
 		glm::mat4 fpsTransform = glm::scale(glm::translate(glm::mat4(), glm::vec3(-1, 0.86, 0)), pt(10));
 		fpsLabel.Render(time, fpsTransform);
-		
+
 		glfwPollEvents();
 		glfwSwapBuffers(window);
-		
+
 		// FPS Counter
 		fpsFrame ++;
-		if(fpsFrame >= 20)
-		{
+		if (fpsFrame >= 20) {
 			double endTime = glfwGetTime();
 			double fps = fpsFrame / (endTime - fpsStartTime);
 			fpsFrame = 0;
 			fpsStartTime = endTime;
-			
+
 			std::ostringstream stream;
 			stream << "FPS: ";
 			stream << std::fixed << std::setprecision(1) << fps;
 			fpsLabel.SetText(toUTF32(stream.str()), 1, glm::vec4(0,0,0,1), defaultFace);
 		}
 	}
-	
+
 	// Exit
 	glfwDestroyWindow(window);
 	glfwTerminate();
@@ -165,42 +158,34 @@ static bool rightShift = false;
 
 void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 {
-	if(action == GLFW_PRESS && key == GLFW_KEY_LEFT_SHIFT)
+	if (action == GLFW_PRESS && key == GLFW_KEY_LEFT_SHIFT) {
 		leftShift = true;
-	else if(action == GLFW_RELEASE && key == GLFW_KEY_LEFT_SHIFT)
+	} else if (action == GLFW_RELEASE && key == GLFW_KEY_LEFT_SHIFT) {
 		leftShift = false;
-	else if(action == GLFW_PRESS && key == GLFW_KEY_RIGHT_SHIFT)
+	} else if (action == GLFW_PRESS && key == GLFW_KEY_RIGHT_SHIFT) {
 		rightShift = true;
-	else if(action == GLFW_RELEASE && key == GLFW_KEY_RIGHT_SHIFT)
+	} else if (action == GLFW_RELEASE && key == GLFW_KEY_RIGHT_SHIFT) {
 		rightShift = false;
+	}
 
-	if(action == GLFW_RELEASE)
+	if (action == GLFW_RELEASE) {
 		return;
-		
-	if(key == GLFW_KEY_BACKSPACE)
-	{
+	}
+
+	if (key == GLFW_KEY_BACKSPACE) {
 		std::u32string text = Label->GetText();
-		if(text.size() > 0 && Label->GetCaretPosition() > 0)
-		{
+		if (text.size() > 0 && Label->GetCaretPosition() > 0) {
 			Label->RemoveText(Label->GetCaretPosition()-1, 1);
 			Label->SetCaretPosition(Label->GetCaretPosition() - 1);
 		}
-	}
-	else if(key == GLFW_KEY_ENTER)
-	{
+	} else if (key == GLFW_KEY_ENTER) {
 		Label->InsertText(U"\n", Label->GetCaretPosition(), 1, glm::vec4(0,0,0,1), rightShift?boldFace:defaultFace);
 		Label->SetCaretPosition(Label->GetCaretPosition() + 1);
-	}
-	else if(key == GLFW_KEY_ESCAPE)
-	{
+	} else if (key == GLFW_KEY_ESCAPE) {
 		spin = !spin;
-	}
-	else if(key == GLFW_KEY_LEFT)
-	{
+	} else if (key == GLFW_KEY_LEFT) {
 		Label->SetCaretPosition(Label->GetCaretPosition() - 1);
-	}
-	else if(key == GLFW_KEY_RIGHT)
-	{
+	} else if (key == GLFW_KEY_RIGHT) {
 		Label->SetCaretPosition(Label->GetCaretPosition() + 1);
 	}
 }
@@ -209,8 +194,7 @@ void onCharTyped(GLFWwindow *window, unsigned int codePoint, int mods)
 {
 	double r0 = 0, r1 = 0, r2 = 0;
 
-	if((mods & GLFW_MOD_ALT) == GLFW_MOD_ALT)
-	{
+	if ((mods & GLFW_MOD_ALT) == GLFW_MOD_ALT) {
 		r0 = ((double) rand() / (RAND_MAX-1));
 		r1 = ((double) rand() / (RAND_MAX-1));
 		r2 = ((double) rand() / (RAND_MAX-1));
@@ -222,14 +206,12 @@ void onCharTyped(GLFWwindow *window, unsigned int codePoint, int mods)
 
 void onScroll(GLFWwindow *window, double deltaX, double deltaY)
 {
-	if(leftShift)
-	{
+	if (leftShift) {
 		scale += 0.1*deltaY;
-		if(scale < 0.1)
+		if (scale < 0.1) {
 			scale = 0.1;
-	}
-	else
-	{
+		}
+	} else {
 		horizontalTransform += 0.1*deltaX/scale;
 		verticalTransform -= 0.1*deltaY/scale;
 	}
