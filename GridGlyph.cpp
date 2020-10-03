@@ -7,56 +7,67 @@ constexpr const T& clamp(const T &v, const T &min, const T &max) {
 	return std::max(std::min(v, max), min);
 }
 
-GridGlyph::GridGlyph(
+// Returns a list of the beziers that intersect each grid cell.
+// The returned outer vector is always size gridWidth*gridHeight.
+static std::vector<std::vector<size_t>> find_cells_intersections(
 	std::vector<Bezier2> &beziers,
 	Vec2 glyphSize,
 	int gridWidth,
 	int gridHeight)
-: width(gridWidth), height(gridHeight)
 {
-	this->cellBeziers.resize(this->width * this->height);
-	this->cellMids.resize(this->width * this->height);
+	std::vector<std::vector<size_t>> cellBeziers;
+	cellBeziers.resize(gridWidth * gridHeight);
 
-	auto setgrid = [this](int x, int y, size_t bezierIndex) {
-		x = clamp(x, 0, this->width);
-		y = clamp(y, 0, this->height);
-		this->cellBeziers[(y * this->width) + x].push_back(bezierIndex);
+	auto setgrid = [&](int x, int y, size_t bezierIndex) {
+		x = clamp(x, 0, gridWidth);
+		y = clamp(y, 0, gridHeight);
+		cellBeziers[(y * gridWidth) + x].push_back(bezierIndex);
 	};
 
-	// 1. Find which beziers intersect which grid cells
 	for (size_t i = 0; i < beziers.size(); i++) {
-
 		// Every vertical grid line including edges
-		for (int x = 0; x <= this->width; x++) {
+		for (int x = 0; x <= gridWidth; x++) {
 			float intY[2];
 			int numInt = beziers[i].intersectVert(
-				x * glyphSize.w / this->width,
+				x * glyphSize.w / gridWidth,
 				intY);
 			for (int j = 0; j < numInt; j++) {
-				int y = intY[j] * this->height / glyphSize.h;
+				int y = intY[j] * gridHeight / glyphSize.h;
 				setgrid(x,     y, i); // left
 				setgrid(x - 1, y, i); // right
 			}
 		}
 
 		// Every horizontal grid line including edges
-		for (int y = 0; y <= this->height; y++) {
+		for (int y = 0; y <= gridHeight; y++) {
 			float intX[2];
 			int numInt = beziers[i].intersectHorz(
-				y * glyphSize.h / this->height,
+				y * glyphSize.h / gridHeight,
 				intX);
 			for (int j = 0; j < numInt; j++) {
-				int x = intX[j] * this->width / glyphSize.w;
+				int x = intX[j] * gridWidth / glyphSize.w;
 				setgrid(x, y,      i); // up
 				setgrid(x, y - 1 , i); // down
 			}
 		}
-
 	}
 
-	// 2. Find whether the center of each cell is inside the glyph
-	for (size_t y = 0; y < gridHeight; y++) {
+	return cellBeziers;
+}
 
+// Returns whether the midpoint of the cell is inside the glyph for each cell.
+// The returned vector is always size gridWidth*gridHeight.
+static std::vector<char> find_cells_mids_inside(
+	std::vector<Bezier2> &beziers,
+	Vec2 glyphSize,
+	int gridWidth,
+	int gridHeight)
+{
+	std::vector<char> cellMids;
+	cellMids.resize(gridWidth * gridHeight);
+
+	// Find whether the center of each cell is inside the glyph
+	for (size_t y = 0; y < gridHeight; y++) {
 		// Find all intersections with cells horizontal midpoint line
 		// and store them sorted from left to right
 		std::set<float> intersections;
@@ -64,16 +75,16 @@ GridGlyph::GridGlyph(
 		for (size_t i = 0; i < beziers.size(); i++) {
 			float intX[2];
 			int numInt = beziers[i].intersectHorz(
-				yMid * glyphSize.h / this->height,
+				yMid * glyphSize.h / gridHeight,
 				intX);
 			for (int j = 0; j < numInt; j++) {
-				float x = intX[j] * this->width / glyphSize.w;
+				float x = intX[j] * gridWidth / glyphSize.w;
 				intersections.insert(x);
 			}
 		}
 
 		// Traverse intersections (whole grid row, left to right).
-		// Every 2nd crossing represents exiting an 'inside' region.
+		// Every 2nd crossing represents exiting an "inside" region.
 		// All properly formed glyphs should have an even number of
 		// crossings.
 		bool outside = false;
@@ -85,10 +96,10 @@ GridGlyph::GridGlyph(
 			// start and end, rounded to the nearest int, is
 			// inside the glyph.
 			if (outside) {
-				int startCell = clamp((int)std::round(start), 0, this->width);
-				int endCell = clamp((int)std::round(end), 0, this->width);
+				int startCell = clamp((int)std::round(start), 0, gridWidth);
+				int endCell = clamp((int)std::round(end), 0, gridWidth);
 				for (int x = startCell; x < endCell; x++) {
-					this->cellMids[(y * this->width) + x] = true;
+					cellMids[(y * gridWidth) + x] = true;
 				}
 			}
 
@@ -96,4 +107,19 @@ GridGlyph::GridGlyph(
 			start = end;
 		}
 	}
+
+	return cellMids;
+}
+
+GridGlyph::GridGlyph(
+	std::vector<Bezier2> &beziers,
+	Vec2 glyphSize,
+	int gridWidth,
+	int gridHeight)
+: width(gridWidth), height(gridHeight)
+{
+	this->cellBeziers = find_cells_intersections(
+		beziers, glyphSize, gridWidth, gridHeight);
+	this->cellMids = find_cells_mids_inside(
+		beziers, glyphSize, gridWidth, gridHeight);
 }

@@ -1,7 +1,9 @@
 #pragma once
-#include <vector>
 #include "types.hpp"
+#include <vector>
 
+// Reprents a grid that is "overlayed" ontop of a glyph, storing some
+// properties about each grid cell. The grid's origin is bottom-left.
 struct GridGlyph {
 	// For each cell, a list of bezier curves (indices referring to input
 	// bezier array) that pass through that cell.
