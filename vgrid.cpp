@@ -1,4 +1,4 @@
-#include "GridGlyph.hpp"
+#include "vgrid.hpp"
 #include <iostream>
 #include <cmath>
 #include <assert.h>
@@ -129,7 +129,7 @@ static std::vector<char> find_cells_mids_inside(
 	return cellMids;
 }
 
-GridGlyph::GridGlyph(
+VGrid::VGrid(
 	std::vector<Bezier2> &beziers,
 	Vec2 glyphSize,
 	int gridWidth,
@@ -154,7 +154,7 @@ static const uint8_t kBezierIndexFirstReal = 2;
 // Writes an entire vgrid into the atlas, where the bottom-left of the vgrid
 // will be written at (atX, atY). It will take up (grid->width, grid->height)
 // atlas texels and overwrite all contents in that rectangle.
-void VGridAtlas::WriteVGridAt(GridGlyph &grid, uint16_t atX, uint16_t atY)
+void VGridAtlas::WriteVGridAt(VGrid &grid, uint16_t atX, uint16_t atY)
 {
 	// TODO: Write an assert() that can take a format message so the
 	// variables can be printed.
@@ -173,7 +173,7 @@ void VGridAtlas::WriteVGridAt(GridGlyph &grid, uint16_t atX, uint16_t atY)
 
 // Writes the data of a single vgrid cell into a single texel (`this->data`
 // bytes starting at `atAtlasIdx`) of the atlas.
-void VGridAtlas::WriteVGridCellAt(GridGlyph &grid, size_t cellIdx, size_t atAtlasIdx)
+void VGridAtlas::WriteVGridCellAt(VGrid &grid, size_t cellIdx, size_t atAtlasIdx)
 {
 	std::set<size_t> *beziers = &grid.cellBeziers[cellIdx];
 

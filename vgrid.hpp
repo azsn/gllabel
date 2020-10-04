@@ -6,7 +6,7 @@
 // Reprents a grid that is "overlayed" on top of a glyph, storing some
 // properties about each grid cell. The grid's origin is bottom-left
 // and is stored in row-major order.
-struct GridGlyph {
+struct VGrid {
 	// For each cell, a set of bezier curves (indices referring to
 	// input bezier array) that pass through that cell.
 	std::vector<std::set<size_t>> cellBeziers;
@@ -19,7 +19,7 @@ struct GridGlyph {
 	int width;
 	int height;
 
-	GridGlyph(
+	VGrid(
 		std::vector<Bezier2> &beziers,
 		Vec2 glyphSize,
 		int gridWidth,
@@ -40,8 +40,8 @@ struct VGridAtlas {
 
 	VGridAtlas() : data(0), width(0), height(0), depth(0) { }
 
-	void WriteVGridAt(GridGlyph &grid, uint16_t atX, uint16_t atY);
+	void WriteVGridAt(VGrid &grid, uint16_t atX, uint16_t atY);
 
 private:
-	void WriteVGridCellAt(GridGlyph &grid, size_t cellIdx, size_t atAtlasIdx);
+	void WriteVGridCellAt(VGrid &grid, size_t cellIdx, size_t atAtlasIdx);
 };

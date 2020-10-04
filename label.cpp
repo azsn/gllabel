@@ -23,7 +23,7 @@
  */
 
 #include "label.hpp"
-#include "GridGlyph.hpp"
+#include "vgrid.hpp"
 #include <set>
 #include <fstream>
 #include <iostream>
@@ -536,7 +536,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	uint8_t gridHeight = kGridMaxSize;
 
 	std::vector<Bezier2> curves = GetCurvesForOutline(&face->glyph->outline);
-	GridGlyph grid(curves, Vec2(glyphWidth, glyphHeight), gridWidth, gridHeight);
+	VGrid grid(curves, Vec2(glyphWidth, glyphHeight), gridWidth, gridHeight);
 
 	// Although the data is represented as a 32bit texture, it's actually
 	// two 16bit ints per pixel, each with an x and y coordinate for
