@@ -26,6 +26,7 @@
 #include "GridGlyph.hpp"
 #include <set>
 #include <fstream>
+#include <iostream>
 #include <glm/gtc/type_ptr.hpp>
 
 #define sq(x) ((x)*(x))
@@ -62,7 +63,7 @@ GLLabel::~GLLabel()
 	glDeleteBuffers(1, &this->caretBuffer);
 }
 
-void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec4 color, FT_Face face)
+void GLLabel::InsertText(std::u32string text, size_t index, glm::vec4 color, FT_Face face)
 {
 	if (index > this->text.size()) {
 		index = this->text.size();
@@ -72,7 +73,7 @@ void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec
 	this->glyphs.insert(this->glyphs.begin() + index, text.size(), nullptr);
 
 	size_t prevCapacity = this->verts.capacity();
-	GlyphVertex emptyVert = {glm::vec2(), {0}};
+	GlyphVertex emptyVert{};
 	this->verts.insert(this->verts.begin() + index*6, text.size()*6, emptyVert);
 
 	glm::vec2 appendOffset(0, 0);
@@ -105,7 +106,7 @@ void GLLabel::InsertText(std::u32string text, size_t index, float size, glm::vec
 			continue;
 		}
 
-		GlyphVertex v[6]; // Insertion code depends on v[0] equaling appendOffset (therefore it is also set before continue;s above)
+		GlyphVertex v[6]{}; // Insertion code depends on v[0] equaling appendOffset (therefore it is also set before continue;s above)
 		v[0].pos = glm::vec2(0, 0);
 		v[1].pos = glm::vec2(glyph->size[0], 0);
 		v[2].pos = glm::vec2(0, glyph->size[1]);
@@ -184,8 +185,6 @@ void GLLabel::RemoveText(size_t index, size_t length)
 		}
 	}
 
-	// printf("start offset: %f, %f\n", startOffset.x, startOffset.y);
-
 	// Since all the glyphs between index-1 and index+length have been erased,
 	// the end offset will be at index until it gets shifted back
 	glm::vec2 endOffset(0, 0);
@@ -197,15 +196,11 @@ void GLLabel::RemoveText(size_t index, size_t length)
 		}
 	// }
 
-	// printf("end offset: %f, %f\n", endOffset.x, endOffset.y);
-
-
 	this->text.erase(index, length);
 	this->glyphs.erase(this->glyphs.begin() + index, this->glyphs.begin() + (index+length));
 	this->verts.erase(this->verts.begin() + index*6, this->verts.begin() + (index+length)*6);
 
 	glm::vec2 deltaOffset = endOffset - startOffset;
-	// printf("%f, %f\n", deltaOffset.x, deltaOffset.y);
 	// Shift everything after, if necessary
 	for (size_t i = index; i < this->text.size(); i++) {
 		if (this->text[i] == '\n') {
@@ -262,7 +257,7 @@ void GLLabel::Render(float time, glm::mat4 transform)
 			}
 		}
 
-		GlyphVertex x[6];
+		GlyphVertex x[6]{};
 		x[0].pos = glm::vec2(0, 0);
 		x[1].pos = glm::vec2(pipe->size[0], 0);
 		x[2].pos = glm::vec2(0, pipe->size[1]);
@@ -305,7 +300,7 @@ void GLLabel::Render(float time, glm::mat4 transform)
 GLFontManager::GLFontManager() : defaultFace(nullptr)
 {
 	if (FT_Init_FreeType(&this->ft) != FT_Err_Ok) {
-		printf("Failed to load freetype\n");
+		std::cerr << "Failed to load freetype\n";
 	}
 
 	this->glyphShader = loadShaderProgram(kGlyphVertexShader, kGlyphFragmentShader);
@@ -366,7 +361,7 @@ FT_Face GLFontManager::GetDefaultFont()
 GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 {
 	if (this->atlases.size() == 0 || this->atlases[this->atlases.size()-1].full) {
-		AtlasGroup group = {0};
+		AtlasGroup group{};
 		group.bezierAtlas = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
 		group.gridAtlas = new uint8_t[sq(kGridAtlasSize)*kAtlasChannels]();
 		group.uploaded = true;
@@ -421,12 +416,12 @@ static std::vector<Bezier2> GetCurvesForOutline(FT_Outline *outline)
 		metricsY = std::min(metricsY, outline->points[i].y);
 	}
 
-	OutlineDecomposeState state = {{0}};
+	OutlineDecomposeState state{};
 	state.curves = &curves;
 	state.metricsX = metricsX;
 	state.metricsY = metricsY;
 
-	FT_Outline_Funcs funcs = {0};
+	FT_Outline_Funcs funcs{};
 	funcs.move_to = [](const FT_Vector *to, void *user) -> int {
 		auto state = static_cast<OutlineDecomposeState *>(user);
 		state->prevPoint = *to;
@@ -452,7 +447,7 @@ static std::vector<Bezier2> GetCurvesForOutline(FT_Outline *outline)
 		state->prevPoint = *to;
 		return 0;
 	};
-	funcs.cubic_to = [](const FT_Vector *control1, const FT_Vector *control2, const FT_Vector *to, void *user) -> int {
+	funcs.cubic_to = [](const FT_Vector *, const FT_Vector *, const FT_Vector *, void *) -> int {
 		// Not implemented
 		return -1;
 	};
@@ -551,10 +546,10 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 
 	if (curves.size() == 0 || bezierPixelLength > kBezierAtlasSize) {
 		if (bezierPixelLength > kBezierAtlasSize) {
-			printf("WARNING: Glyph %i has too many curves\n", point);
+			std::cerr << "WARN: Glyph " << point << " has too many curves\n";
 		}
 
-		GLFontManager::Glyph glyph = {{0}};
+		GLFontManager::Glyph glyph{};
 		glyph.bezierAtlasPos[2] = -1;
 		glyph.size[0] = glyphWidth;
 		glyph.size[1] = glyphHeight;
@@ -620,7 +615,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 			size_t j = 0;
 			for (auto it = beziers.begin(); it != beziers.end(); it++) {
 				if (j >= kAtlasChannels) { // TODO: More than four beziers per pixel?
-					printf("MORE THAN 4 on %i\n", point);
+					std::cerr << "WARN: MORE THAN 4 on " << point << "\n";
 					break;
 				}
 				atlas->gridAtlas[gridmapIdx+j] = *it + 1;
@@ -652,7 +647,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		}
 	}
 
-	GLFontManager::Glyph glyph = {{0}};
+	GLFontManager::Glyph glyph{};
 	glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
 	glyph.bezierAtlasPos[1] = atlas->nextBezierPos[1];
 	glyph.bezierAtlasPos[2] = this->atlases.size()-1;
@@ -737,7 +732,7 @@ static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC)
 	if (infoLogLength > 1) {
 		std::vector<char> infoLog(infoLogLength+1);
 		glGetShaderInfoLog(vertexShaderId, infoLogLength, NULL, &infoLog[0]);
-		printf("[Vertex] %s\n", &infoLog[0]);
+		std::cerr << "[Vertex] " << &infoLog[0] << "\n";
 	}
 	if (!result) {
 		return 0;
@@ -754,7 +749,7 @@ static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC)
 	if (infoLogLength > 1) {
 		std::vector<char> infoLog(infoLogLength);
 		glGetShaderInfoLog(fragmentShaderId, infoLogLength, NULL, &infoLog[0]);
-		printf("[Fragment] %s\n", &infoLog[0]);
+		std::cerr << "[Fragment] " << &infoLog[0] << "\n";
 	}
 	if (!result) {
 		return 0;
@@ -772,7 +767,7 @@ static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC)
 	if (infoLogLength > 1) {
 		std::vector<char> infoLog(infoLogLength+1);
 		glGetProgramInfoLog(programId, infoLogLength, NULL, &infoLog[0]);
-		printf("[Shader Linker] %s\n", &infoLog[0]);
+		std::cerr << "[Shader Linker] " << &infoLog[0] << "\n";
 	}
 	if (!result) {
 		return 0;

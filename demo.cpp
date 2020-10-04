@@ -36,7 +36,7 @@ int main()
 {
 	// Create a window
 	if (!glfwInit()) {
-		fprintf(stderr, "Failed to initialize GLFW.\n");
+		std::cerr << "Failed to initialize GLFW.\n";
 		return -1;
 	}
 
@@ -51,7 +51,7 @@ int main()
 
 	GLFWwindow *window = glfwCreateWindow(width, height, "Vector-Based GPU Text Rendering", NULL, NULL);
 	if (!window) {
-		fprintf(stderr, "Failed to create GLFW window.");
+		std::cerr << "Failed to create GLFW window.\n";
 		glfwTerminate();
 		return -1;
 	}
@@ -65,13 +65,13 @@ int main()
 	glfwMakeContextCurrent(window);
 	glewExperimental = true;
 	if (glewInit() != GLEW_OK) {
-		fprintf(stderr, "Failed to initialize GLEW.\n");
+		std::cerr << "Failed to initialize GLEW.\n";
 		glfwDestroyWindow(window);
 		glfwTerminate();
 		return -1;
 	}
 
-	printf("GL Version: %s\n", glGetString(GL_VERSION));
+	std::cout << "GL Version: " << glGetString(GL_VERSION) << "\n";
 
 	GLuint vertexArrayId;
 	glGenVertexArrays(1, &vertexArrayId);
@@ -84,25 +84,25 @@ int main()
 	Label = new GLLabel();
 	Label->ShowCaret(true);
 
-	printf("Loading font files\n");
+	std::cout << "Loading font files\n";
 	defaultFace = GLFontManager::GetFontManager()->GetDefaultFont();
 	boldFace = GLFontManager::GetFontManager()->GetFontFromPath("fonts/LiberationSans-Bold.ttf");
 
-	Label->SetText(U"Welcome to vector-based GPU text rendering!\nType whatever you want!\n\nPress LEFT/RIGHT to move cursor.\nPress ESC to toggle rotate.\nScroll vertically/horizontally to move.\nScroll while holding shift to zoom.\nRight-shift for bold.\nHold ALT to type in ", 1, glm::vec4(0.5,0,0,1), defaultFace);
-	Label->AppendText(U"r", 1, glm::vec4(0.58, 0, 0.83, 1), defaultFace);
-	Label->AppendText(U"a", 1, glm::vec4(0.29, 0, 0.51, 1), defaultFace);
-	Label->AppendText(U"i", 1, glm::vec4(0,    0, 1,    1), defaultFace);
-	Label->AppendText(U"n", 1, glm::vec4(0,    1, 0,    1), defaultFace);
-	Label->AppendText(U"b", 1, glm::vec4(1,    1, 0,    1), defaultFace);
-	Label->AppendText(U"o", 1, glm::vec4(1,    0.5, 0,  1), defaultFace);
-	Label->AppendText(U"w", 1, glm::vec4(1,    0, 0,    1), defaultFace);
-	Label->AppendText(U"!\n", 1, glm::vec4(0.5,0,0,1), defaultFace);
+	Label->SetText(U"Welcome to vector-based GPU text rendering!\nType whatever you want!\n\nPress LEFT/RIGHT to move cursor.\nPress ESC to toggle rotate.\nScroll vertically/horizontally to move.\nScroll while holding shift to zoom.\nRight-shift for bold.\nHold ALT to type in ", glm::vec4(0.5,0,0,1), defaultFace);
+	Label->AppendText(U"r", glm::vec4(0.58, 0, 0.83, 1), defaultFace);
+	Label->AppendText(U"a", glm::vec4(0.29, 0, 0.51, 1), defaultFace);
+	Label->AppendText(U"i", glm::vec4(0,    0, 1,    1), defaultFace);
+	Label->AppendText(U"n", glm::vec4(0,    1, 0,    1), defaultFace);
+	Label->AppendText(U"b", glm::vec4(1,    1, 0,    1), defaultFace);
+	Label->AppendText(U"o", glm::vec4(1,    0.5, 0,  1), defaultFace);
+	Label->AppendText(U"w", glm::vec4(1,    0, 0,    1), defaultFace);
+	Label->AppendText(U"!\n", glm::vec4(0.5,0,0,1), defaultFace);
 	Label->SetCaretPosition(Label->GetText().size());
 
 	GLLabel fpsLabel;
-	fpsLabel.SetText(toUTF32("FPS:"), 1, glm::vec4(0,0,0,1), defaultFace);
+	fpsLabel.SetText(toUTF32("FPS:"), glm::vec4(0,0,0,1), defaultFace);
 
-	printf("Starting render\n");
+	std::cout << "Starting render\n";
 
 	int fpsFrame = 0;
 	double fpsStartTime = glfwGetTime();
@@ -151,7 +151,7 @@ int main()
 			std::ostringstream stream;
 			stream << "FPS: ";
 			stream << std::fixed << std::setprecision(1) << fps;
-			fpsLabel.SetText(toUTF32(stream.str()), 1, glm::vec4(0,0,0,1), defaultFace);
+			fpsLabel.SetText(toUTF32(stream.str()), glm::vec4(0,0,0,1), defaultFace);
 		}
 	}
 
@@ -164,7 +164,7 @@ int main()
 static bool leftShift = false;
 static bool rightShift = false;
 
-void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
+void onKeyPress(GLFWwindow *, int key, int /*scanCode*/, int action, int /*mods*/)
 {
 	if (action == GLFW_PRESS && key == GLFW_KEY_LEFT_SHIFT) {
 		leftShift = true;
@@ -187,7 +187,7 @@ void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 			Label->SetCaretPosition(Label->GetCaretPosition() - 1);
 		}
 	} else if (key == GLFW_KEY_ENTER) {
-		Label->InsertText(U"\n", Label->GetCaretPosition(), 1, glm::vec4(0,0,0,1), rightShift?boldFace:defaultFace);
+		Label->InsertText(U"\n", Label->GetCaretPosition(), glm::vec4(0,0,0,1), rightShift?boldFace:defaultFace);
 		Label->SetCaretPosition(Label->GetCaretPosition() + 1);
 	} else if (key == GLFW_KEY_ESCAPE) {
 		spin = !spin;
@@ -198,7 +198,7 @@ void onKeyPress(GLFWwindow *window, int key, int scanCode, int action, int mods)
 	}
 }
 
-void onCharTyped(GLFWwindow *window, unsigned int codePoint, int mods)
+void onCharTyped(GLFWwindow *, unsigned int codePoint, int mods)
 {
 	double r0 = 0, r1 = 0, r2 = 0;
 
@@ -208,11 +208,11 @@ void onCharTyped(GLFWwindow *window, unsigned int codePoint, int mods)
 		r2 = ((double) rand() / (RAND_MAX-1));
 	}
 
-	Label->InsertText(std::u32string(1, codePoint), Label->GetCaretPosition(), 1, glm::vec4(r0,r1,r2,1), rightShift?boldFace:defaultFace);
+	Label->InsertText(std::u32string(1, codePoint), Label->GetCaretPosition(), glm::vec4(r0,r1,r2,1), rightShift?boldFace:defaultFace);
 	Label->SetCaretPosition(Label->GetCaretPosition() + 1);
 }
 
-void onScroll(GLFWwindow *window, double deltaX, double deltaY)
+void onScroll(GLFWwindow *, double deltaX, double deltaY)
 {
 	if (leftShift) {
 		scale += 0.1*deltaY;
@@ -225,7 +225,7 @@ void onScroll(GLFWwindow *window, double deltaX, double deltaY)
 	}
 }
 
-void onResize(GLFWwindow *window, int w, int h)
+void onResize(GLFWwindow *, int w, int h)
 {
 	width = w;
 	height = h;

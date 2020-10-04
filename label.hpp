@@ -119,14 +119,14 @@ public:
 	GLLabel();
 	~GLLabel();
 
-	void InsertText(std::u32string text, size_t index, float size, glm::vec4 color, FT_Face face);
+	void InsertText(std::u32string text, size_t index, glm::vec4 color, FT_Face face);
 	void RemoveText(size_t index, size_t length);
-	inline void SetText(std::u32string text, float size, glm::vec4 color, FT_Face face) {
+	inline void SetText(std::u32string text, glm::vec4 color, FT_Face face) {
 		this->RemoveText(0, this->text.size());
-		this->InsertText(text, 0, size, color, face);
+		this->InsertText(text, 0, color, face);
 	}
-	inline void AppendText(std::u32string text, float size, glm::vec4 color, FT_Face face) {
-		this->InsertText(text, this->text.size(), size, color, face);
+	inline void AppendText(std::u32string text, glm::vec4 color, FT_Face face) {
+		this->InsertText(text, this->text.size(), color, face);
 	}
 
 	inline std::u32string GetText() { return this->text; }

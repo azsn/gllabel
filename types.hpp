@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 struct Vec2 {
 	union {
 		float x;

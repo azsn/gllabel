@@ -42,7 +42,7 @@ int Bezier2::IntersectHorz(float Y, float outX[2])
 		return i;
 	}
 
-	float sqrtTerm = sqrt(Y*a + B.y*B.y - A.y*C.y);
+	float sqrtTerm = std::sqrt(Y*a + B.y*B.y - A.y*C.y);
 
 	float t = (A.y - B.y + sqrtTerm) / a;
 	if (T_VALID(t)) {

@@ -1,8 +1,10 @@
 #include "GridGlyph.hpp"
+#include <iostream>
 #include <cmath>
+#include <assert.h>
 
 // Converts X,Y to index in a row-major 2D array
-constexpr const size_t xy2i(const size_t x, const size_t y, const size_t w) {
+constexpr size_t xy2i(const size_t x, const size_t y, const size_t w) {
 	return (y * w) + x;
 }
 
@@ -83,7 +85,7 @@ static std::vector<char> find_cells_mids_inside(
 	cellMids.resize(gridWidth * gridHeight);
 
 	// Find whether the center of each cell is inside the glyph
-	for (size_t y = 0; y < gridHeight; y++) {
+	for (int y = 0; y < gridHeight; y++) {
 		// Find all intersections with cells horizontal midpoint line
 		// and store them sorted from left to right
 		std::set<float> intersections;
@@ -147,13 +149,15 @@ GridGlyph::GridGlyph(
 static const uint8_t kBezierIndexUnused = 0;
 static const uint8_t kBezierIndexSortMeta = 1;
 static const uint8_t kBezierIndexFirstReal = 2;
-static const uint8_t kMaxBeziersPerGrid = 256 - kBezierIndexFirstReal;
+//static const uint8_t kMaxBeziersPerGrid = 256 - kBezierIndexFirstReal;
 
 // Writes an entire vgrid into the atlas, where the bottom-left of the vgrid
 // will be written at (atX, atY). It will take up (grid->width, grid->height)
 // atlas texels and overwrite all contents in that rectangle.
 void VGridAtlas::WriteVGridAt(GridGlyph &grid, uint16_t atX, uint16_t atY)
 {
+	// TODO: Write an assert() that can take a format message so the
+	// variables can be printed.
 	assert((atX + grid.width) <= this->width);
 	assert((atY + grid.height) <= this->height);
 
@@ -174,7 +178,10 @@ void VGridAtlas::WriteVGridCellAt(GridGlyph &grid, size_t cellIdx, size_t atAtla
 	std::set<size_t> *beziers = &grid.cellBeziers[cellIdx];
 
 	if (beziers->size() > this->depth) {
-		fprintf(stderr, "WARN: Too many beziers in one grid cell (max: %d, need: %lu, cellIdx: %lu\n", this->depth, beziers->size(), cellIdx);
+		std::cerr << "WARN: Too many beziers in one grid cell ("
+			<< "max: " << this->depth
+			<< ", need: " << beziers->size()
+			<< ", cellIdx: " << cellIdx << ")\n";
 	}
 
 	// `this->depth` bytes of texel data
