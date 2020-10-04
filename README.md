@@ -20,6 +20,20 @@ complex. Contact me with any questions and I'll attempt to respond.
 Screenshot:
 ![screenshot](screenshot.png)
 
+Building
+-------
+
+Dependencies
+* C++14
+* OpenGL
+* GLFW
+* GLEW
+* GLM
+* FreeType2
+
+To build, modify the `_INCLUDES` and `_LIBS` lines at the top of `makefile` to
+match your system's configuration, then run `make`.
+
 Thanks and License
 --------
 
