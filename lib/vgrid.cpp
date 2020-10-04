@@ -145,56 +145,30 @@ VGrid::VGrid(
 // Each grid cell is represented as one byte in the atlas, and values 0 and 1
 // are reserved for special meaning. This leaves a limit of 254 beziers per
 // grid/glyph. More on the meaning of values 1 and 0 in the VGridAtlas struct
-// definition and in VGridAtlas::WriteVGridAt.
+// definition and in write_vgrid_cell_to_buffer().
 static const uint8_t kBezierIndexUnused = 0;
 static const uint8_t kBezierIndexSortMeta = 1;
 static const uint8_t kBezierIndexFirstReal = 2;
 //static const uint8_t kMaxBeziersPerGrid = 256 - kBezierIndexFirstReal;
 
-// Writes an entire vgrid into the atlas, where the bottom-left of the vgrid
-// will be written at (atX, atY). It will take up (grid->width, grid->height)
-// atlas texels and overwrite all contents in that rectangle.
-void VGridAtlas::WriteVGridAt(VGrid &grid, uint16_t atX, uint16_t atY)
-{
-	// TODO: Write an assert() that can take a format message so the
-	// variables can be printed.
-	assert((atX + grid.width) <= this->width);
-	assert((atY + grid.height) <= this->height);
-
-	for (uint16_t y = 0; y < grid.height; y++) {
-		for (uint16_t x = 0; x < grid.width; x++) {
-			size_t cellIdx = xy2i(x, y, grid.width);
-			size_t atlasIdx =
-				xy2i(atX+x, atY+y, this->width) * this->depth;
-			this->WriteVGridCellAt(grid, cellIdx, atlasIdx);
-		}
-	}
-}
-
-// Writes the data of a single vgrid cell into a single texel (`this->data`
-// bytes starting at `atAtlasIdx`) of the atlas.
-void VGridAtlas::WriteVGridCellAt(VGrid &grid, size_t cellIdx, size_t atAtlasIdx)
+// Writes the data of a single vgrid cell into a texel. At most `depth` bytes
+// will be written, even if there are more beziers.
+static void write_vgrid_cell_to_buffer(
+	VGrid &grid,
+	size_t cellIdx, // which cell in `grid` to write
+	uint8_t *data, // texel buffer, `depth` bytes long
+	uint8_t depth)
 {
 	std::set<size_t> *beziers = &grid.cellBeziers[cellIdx];
 
-	if (beziers->size() > this->depth) {
-		std::cerr << "WARN: Too many beziers in one grid cell ("
-			<< "max: " << this->depth
-			<< ", need: " << beziers->size()
-			<< ", cellIdx: " << cellIdx << ")\n";
-	}
-
-	// `this->depth` bytes of texel data
-	uint8_t *data = &this->data[atAtlasIdx];
-
 	// Clear texel
-	for (uint8_t i = 0; i < this->depth; i++) {
+	for (uint8_t i = 0; i < depth; i++) {
 		data[i] = kBezierIndexUnused;
 	}
 
 	// Write out bezier indices to atlas texel
 	size_t i = 0;
-	size_t nbeziers = std::min(beziers->size(), (size_t)this->depth);
+	size_t nbeziers = std::min(beziers->size(), (size_t)depth);
 	auto end = beziers->begin();
 	std::advance(end, nbeziers);
 	for (auto it = beziers->begin(); it != end; it++) {
@@ -233,5 +207,35 @@ void VGridAtlas::WriteVGridCellAt(VGrid &grid, size_t cellIdx, size_t atAtlasIdx
 	} else if (beziers->size() == 1) {
 		data[1] = data[0];
 		data[0] = kBezierIndexUnused;
+	}
+}
+
+// Writes an entire vgrid into the atlas, where the bottom-left of the vgrid
+// will be written at (atX, atY). It will take up (grid->width, grid->height)
+// atlas texels and overwrite all contents in that rectangle.
+void VGridAtlas::WriteVGridAt(VGrid &grid, uint16_t atX, uint16_t atY)
+{
+	// TODO: Write an assert() that can take a format message so the
+	// variables can be printed.
+	assert((atX + grid.width) <= this->width);
+	assert((atY + grid.height) <= this->height);
+
+	for (uint16_t y = 0; y < grid.height; y++) {
+		for (uint16_t x = 0; x < grid.width; x++) {
+			size_t cellIdx = xy2i(x, y, grid.width);
+			size_t atlasIdx = xy2i(atX+x, atY+y, this->width) * this->depth;
+
+			std::set<size_t> *beziers = &grid.cellBeziers[cellIdx];
+			if (beziers->size() > this->depth) {
+				std::cerr << "WARN: Too many beziers in one grid cell ("
+					<< "max: " << this->depth
+					<< ", need: " << beziers->size()
+					<< ", x: " << x
+					<< ", y: " << y << ")\n";
+			}
+
+			uint8_t *data = &this->data[atlasIdx];
+			write_vgrid_cell_to_buffer(grid, cellIdx, data, this->depth);
+		}
 	}
 }
