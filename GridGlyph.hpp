@@ -3,7 +3,7 @@
 #include <vector>
 #include <set>
 
-// Reprents a grid that is "overlayed" ontop of a glyph, storing some
+// Reprents a grid that is "overlayed" on top of a glyph, storing some
 // properties about each grid cell. The grid's origin is bottom-left
 // and is stored in row-major order.
 struct GridGlyph {
@@ -15,7 +15,7 @@ struct GridGlyph {
 	// inside the glpyh (true) or outside (false).
 	std::vector<char> cellMids;
 
-	// Size of the grid. Both arrays above are size width*height;
+	// Size of the grid. Both arrays above are size width*height.
 	int width;
 	int height;
 
@@ -24,4 +24,22 @@ struct GridGlyph {
 		Vec2 glyphSize,
 		int gridWidth,
 		int gridHeight);
+};
+
+struct VGridAtlas {
+	// 2D buffer, size is width*height, row-major, starts at bottom-left
+	uint8_t *data;
+
+	uint16_t width;
+	uint16_t height;
+
+	// Bytes per pixel, aka. how many bezier curves are allowed per grid
+	// cell. This should probably always be 4, since that's the limit of
+	// bytes per pixel that OpenGL supports (GL_RGBA8).
+	uint8_t depth;
+
+	void WriteVGridAt(GridGlyph &grid, uint16_t atX, uint16_t atY);
+
+private:
+	void WriteVGridCellAt(GridGlyph &grid, size_t cellIdx, size_t atAtlasIdx);
 };
