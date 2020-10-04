@@ -1,4 +1,6 @@
 #include "GridGlyph.hpp"
+#include <cstdio>
+#include <cassert>
 #include <cmath>
 
 // Converts X,Y to index in a row-major 2D array
@@ -83,7 +85,7 @@ static std::vector<char> find_cells_mids_inside(
 	cellMids.resize(gridWidth * gridHeight);
 
 	// Find whether the center of each cell is inside the glyph
-	for (size_t y = 0; y < gridHeight; y++) {
+	for (size_t y = 0; y < (unsigned int)gridHeight; y++) {
 		// Find all intersections with cells horizontal midpoint line
 		// and store them sorted from left to right
 		std::set<float> intersections;
