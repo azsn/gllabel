@@ -617,10 +617,6 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 
 			auto beziers = grid.cellBeziers[gridIdx];
 
-			if (grid.cellMids[gridIdx]) {
-				beziers.insert(254);
-			}
-
 			size_t j = 0;
 			for (auto it = beziers.begin(); it != beziers.end(); it++) {
 				if (j >= kAtlasChannels) { // TODO: More than four beziers per pixel?
@@ -631,20 +627,28 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 				j++;
 			}
 
-			// TODO
-			//// Beziers are sorted, so store the midpoint flag by
-			//// changing the order of the first two beziers
-			//// (midpoint is inside if swapped)
-			//if (grid.cellMids[gridIdx]) {
-			//	if (beziers->size() == 0) {
-			//		// If no beziers, nothing to swap, so use 255
-			//		atlas->gridAtlas[gridmapIdx] = 255;
-			//	} else {
-			//		uint8_t tmp = atlas->gridAtlas[gridmapIdx];
-			//		atlas->gridAtlas[gridmapIdx] = atlas->gridAtlas[gridmapIdx+1];
-			//		atlas->gridAtlas[gridmapIdx+1] = tmp;
-			//	}
-			//}
+			// Beziers are sorted, so store the midpoint flag by
+			// changing the order of the first two beziers
+			// (midpoint is inside if swapped)
+			if (grid.cellMids[gridIdx]) {
+				if (beziers.size() == 0) {
+					// If no beziers, nothing to swap, so make something fake
+					// (Index 255 is ignored by shader)
+					atlas->gridAtlas[gridmapIdx] = 255;
+				} else if (beziers.size() == 1) {
+					// A single bezier is already "swapped"
+					// because the next index is 0 (empty)
+					// so do nothing
+				} else {
+					uint8_t tmp = atlas->gridAtlas[gridmapIdx];
+					atlas->gridAtlas[gridmapIdx] = atlas->gridAtlas[gridmapIdx+1];
+					atlas->gridAtlas[gridmapIdx+1] = tmp;
+				}
+			} else if (beziers.size() == 1) {
+				// If mid not inside, but there's only one bezier,
+				// it'll look always swapped to the shader. So fake sorted order.
+				atlas->gridAtlas[gridmapIdx+1] = 255;
+			}
 		}
 	}
 
@@ -964,7 +968,7 @@ void main()
 
 	// bool moreThanFourIndices = indices1[0] < indices1[1];
 
-	float midClosest = (indices1[0] > 250 || indices1[1] > 250 || indices1[2] > 250 || indices1[3] > 250) ? -2.0 : 2.0;
+	float midClosest = (indices1[0] > indices1[1]) ? -2.0 : 2.0;
 
 	float firstIntersection[numSS];
 	for (int ss=0; ss<numSS; ss++) {
@@ -985,7 +989,7 @@ void main()
 		//	 coordIndex = indices2[bezierIndex-4];
 		//}
 
-		if (coordIndex == 0 || coordIndex > 250) {
+		if (coordIndex == 0 || coordIndex == 255) {
 			continue;
 		}
 
