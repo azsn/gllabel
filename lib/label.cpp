@@ -604,48 +604,13 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		bezierData16[j*6+5] = curves[j].e1.y * 65535 / glyphHeight;
 	}
 
-	// Copy grid to atlas
-	for (uint32_t y = 0; y < gridHeight; y++) {
-		for (uint32_t x = 0; x < gridWidth; x++) {
-			size_t gridIdx = y*gridWidth + x;
-			size_t gridmapIdx = ((atlas->nextGridPos[1]+y)*kGridAtlasSize + (atlas->nextGridPos[0]+x))*kAtlasChannels;
-
-			auto beziers = grid.cellBeziers[gridIdx];
-
-			size_t j = 0;
-			for (auto it = beziers.begin(); it != beziers.end(); it++) {
-				if (j >= kAtlasChannels) { // TODO: More than four beziers per pixel?
-					std::cerr << "WARN: MORE THAN 4 on " << point << "\n";
-					break;
-				}
-				atlas->gridAtlas[gridmapIdx+j] = *it + 1;
-				j++;
-			}
-
-			// Beziers are sorted, so store the midpoint flag by
-			// changing the order of the first two beziers
-			// (midpoint is inside if swapped)
-			if (grid.cellMids[gridIdx]) {
-				if (beziers.size() == 0) {
-					// If no beziers, nothing to swap, so make something fake
-					// (Index 255 is ignored by shader)
-					atlas->gridAtlas[gridmapIdx] = 255;
-				} else if (beziers.size() == 1) {
-					// A single bezier is already "swapped"
-					// because the next index is 0 (empty)
-					// so do nothing
-				} else {
-					uint8_t tmp = atlas->gridAtlas[gridmapIdx];
-					atlas->gridAtlas[gridmapIdx] = atlas->gridAtlas[gridmapIdx+1];
-					atlas->gridAtlas[gridmapIdx+1] = tmp;
-				}
-			} else if (beziers.size() == 1) {
-				// If mid not inside, but there's only one bezier,
-				// it'll look always swapped to the shader. So fake sorted order.
-				atlas->gridAtlas[gridmapIdx+1] = 255;
-			}
-		}
-	}
+	// TODO: Integrate with AtlasGroup / replace AtlasGroup
+	VGridAtlas gridAtlas{};
+	gridAtlas.data = atlas->gridAtlas;
+	gridAtlas.width = kGridAtlasSize;
+	gridAtlas.height = kGridAtlasSize;
+	gridAtlas.depth = kAtlasChannels;
+	gridAtlas.WriteVGridAt(grid, atlas->nextGridPos[0], atlas->nextGridPos[1]);
 
 	GLFontManager::Glyph glyph{};
 	glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
@@ -963,7 +928,11 @@ void main()
 
 	// bool moreThanFourIndices = indices1[0] < indices1[1];
 
-	float midClosest = (indices1[0] > indices1[1]) ? -2.0 : 2.0;
+	// The mid-inside flag is encoded by the order of the beziers indices.
+	// See write_vgrid_cell_to_buffer() for details.
+	bool midInside = indices1[0] > indices1[1];
+
+	float midClosest = midInside ? -2.0 : 2.0;
 
 	float firstIntersection[numSS];
 	for (int ss=0; ss<numSS; ss++) {
@@ -984,12 +953,14 @@ void main()
 		//	 coordIndex = indices2[bezierIndex-4];
 		//}
 
-		if (coordIndex == 0 || coordIndex == 255) {
+		// Indices 0 and 1 are both "no bezier" -- see
+		// write_vgrid_cell_to_buffer() for why.
+		if (coordIndex < 2) {
 			continue;
 		}
 
 		vec2 p[3];
-		fetchBezier(coordIndex-1, p);
+		fetchBezier(coordIndex-2, p);
 
 		updateClosestCrossing(p, midTransform, midClosest, integerCell);
 
