@@ -5,3 +5,4 @@ gridAtlas.bmp
 *.swp
 *.dSYM
 .DS_Store
+.syntastic_cpp_config

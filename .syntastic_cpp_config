@@ -1,4 +1,0 @@
--std=c++14
--I/usr/local/include/freetype2
--I/usr/local/include/GLFW
--I/usr/local/include/GL
