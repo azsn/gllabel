@@ -22,7 +22,7 @@
  * (Dobbie, please let me know if you have issues with this.)
  */
 
-#include "label.hpp"
+#include <gllabel.hpp>
 #include "vgrid.hpp"
 #include <set>
 #include <fstream>

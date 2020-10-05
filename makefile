@@ -23,10 +23,10 @@ FT2_LIBS=-lfreetype
 
 
 CC=g++
-CPPFLAGS=-Wall -Wextra -g -std=c++14 ${GL_INCLUDES} ${GLFW_INCLUDES} ${GLEW_INCLUDES} ${GLM_INCLUDES} ${FT2_INCLUDES}
+CPPFLAGS=-Wall -Wextra -g -std=c++14 -Iinclude ${GL_INCLUDES} ${GLFW_INCLUDES} ${GLEW_INCLUDES} ${GLM_INCLUDES} ${FT2_INCLUDES}
 LDLIBS=${GL_LIBS} ${GLFW_LIBS} ${GLEW_LIBS} ${FT2_LIBS}
 
 run: demo
 	./demo
 
-demo: demo.cpp lib/label.cpp lib/types.cpp lib/vgrid.cpp
+demo: demo.cpp lib/gllabel.cpp lib/types.cpp lib/vgrid.cpp
