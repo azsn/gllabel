@@ -509,6 +509,30 @@ void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channe
 	fclose(f);
 }
 
+// A bezier is written as 6 16-bit integers (12 bytes). Increments buffer by
+// the number of bytes written (always 12). Coords are scaled from
+// [0,glyphSize] to [0,UINT16_MAX].
+void write_bezier_to_buffer(Bezier2 *bezier, Vec2 *glyphSize, uint8_t **buffer)
+{
+	uint16_t *buffer16 = (uint16_t *)(*buffer);
+	buffer16[0] = bezier->e0.x * UINT16_MAX / glyphSize->w;
+	buffer16[1] = bezier->e0.y * UINT16_MAX / glyphSize->h;
+	buffer16[2] = bezier->c.x  * UINT16_MAX / glyphSize->w;
+	buffer16[3] = bezier->c.y  * UINT16_MAX / glyphSize->h;
+	buffer16[4] = bezier->e1.x * UINT16_MAX / glyphSize->w;
+	buffer16[5] = bezier->e1.y * UINT16_MAX / glyphSize->h;
+	*buffer += 12;
+}
+
+void write_beziers_to_buffer(
+	std::vector<Bezier2> &beziers,
+	Vec2 &glyphSize,
+	uint8_t *buffer)
+{
+	for (size_t i = 0; i < beziers.size(); i++) {
+		write_bezier_to_buffer(&beziers[i], &glyphSize, &buffer);
+	}
+}
 
 GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_t point)
 {
@@ -593,16 +617,9 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	bezierData16[2] = kGridMaxSize;
 	bezierData16[3] = kGridMaxSize;
 	bezierData16 += 4; // 2 pixels
-	for (uint32_t j = 0; j < curves.size(); j++) {
-		// 3 pixels = 6 uint16s
-		// Scale coords from [0,glyphSize] to [0,maxUShort]
-		bezierData16[j*6+0] = curves[j].e0.x * 65535 / glyphWidth;
-		bezierData16[j*6+1] = curves[j].e0.y * 65535 / glyphHeight;
-		bezierData16[j*6+2] = curves[j].c.x  * 65535 / glyphWidth;
-		bezierData16[j*6+3] = curves[j].c.y  * 65535 / glyphHeight;
-		bezierData16[j*6+4] = curves[j].e1.x * 65535 / glyphWidth;
-		bezierData16[j*6+5] = curves[j].e1.y * 65535 / glyphHeight;
-	}
+
+	Vec2 glyphSize(glyphWidth, glyphHeight);
+	write_beziers_to_buffer(curves, glyphSize, (uint8_t *)bezierData16);
 
 	// TODO: Integrate with AtlasGroup / replace AtlasGroup
 	VGridAtlas gridAtlas{};
