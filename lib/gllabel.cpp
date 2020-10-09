@@ -512,25 +512,36 @@ void writeBMP(const char *path, uint32_t width, uint32_t height, uint16_t channe
 // A bezier is written as 6 16-bit integers (12 bytes). Increments buffer by
 // the number of bytes written (always 12). Coords are scaled from
 // [0,glyphSize] to [0,UINT16_MAX].
-void write_bezier_to_buffer(Bezier2 *bezier, Vec2 *glyphSize, uint8_t **buffer)
+void write_bezier_to_buffer(uint16_t **pbuffer, Bezier2 *bezier, Vec2 *glyphSize)
 {
-	uint16_t *buffer16 = (uint16_t *)(*buffer);
-	buffer16[0] = bezier->e0.x * UINT16_MAX / glyphSize->w;
-	buffer16[1] = bezier->e0.y * UINT16_MAX / glyphSize->h;
-	buffer16[2] = bezier->c.x  * UINT16_MAX / glyphSize->w;
-	buffer16[3] = bezier->c.y  * UINT16_MAX / glyphSize->h;
-	buffer16[4] = bezier->e1.x * UINT16_MAX / glyphSize->w;
-	buffer16[5] = bezier->e1.y * UINT16_MAX / glyphSize->h;
-	*buffer += 12;
+	uint16_t *buffer = *pbuffer;
+	buffer[0] = bezier->e0.x * UINT16_MAX / glyphSize->w;
+	buffer[1] = bezier->e0.y * UINT16_MAX / glyphSize->h;
+	buffer[2] = bezier->c.x  * UINT16_MAX / glyphSize->w;
+	buffer[3] = bezier->c.y  * UINT16_MAX / glyphSize->h;
+	buffer[4] = bezier->e1.x * UINT16_MAX / glyphSize->w;
+	buffer[5] = bezier->e1.y * UINT16_MAX / glyphSize->h;
+	*pbuffer += 6;
 }
 
-void write_beziers_to_buffer(
+void write_glyph_data_to_buffer(
+	uint8_t *buffer8,
 	std::vector<Bezier2> &beziers,
 	Vec2 &glyphSize,
-	uint8_t *buffer)
+	uint16_t gridX,
+	uint16_t gridY,
+	uint16_t gridWidth,
+	uint16_t gridHeight)
 {
+	uint16_t *buffer = (uint16_t *)buffer8;
+	buffer[0] = gridX;
+	buffer[1] = gridY;
+	buffer[2] = gridWidth;
+	buffer[3] = gridHeight;
+	buffer += 4;
+
 	for (size_t i = 0; i < beziers.size(); i++) {
-		write_bezier_to_buffer(&beziers[i], &glyphSize, &buffer);
+		write_bezier_to_buffer(&buffer, &beziers[i], &glyphSize);
 	}
 }
 
@@ -608,18 +619,16 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	}
 
 	uint8_t *bezierData = atlas->bezierAtlas + (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextBezierPos[0])*kAtlasChannels;
-	uint16_t *bezierData16 = (uint16_t *)bezierData;
-
-	// TODO: The shader combines each set of bytes into 16 bit ints, which
-	// depends on endianness. So this currently only works on little-endian
-	bezierData16[0] = atlas->nextGridPos[0];
-	bezierData16[1] = atlas->nextGridPos[1];
-	bezierData16[2] = kGridMaxSize;
-	bezierData16[3] = kGridMaxSize;
-	bezierData16 += 4; // 2 pixels
 
 	Vec2 glyphSize(glyphWidth, glyphHeight);
-	write_beziers_to_buffer(curves, glyphSize, (uint8_t *)bezierData16);
+	write_glyph_data_to_buffer(
+		bezierData,
+		curves,
+		glyphSize,
+		atlas->nextGridPos[0],
+		atlas->nextGridPos[1],
+		kGridMaxSize,
+		kGridMaxSize);
 
 	// TODO: Integrate with AtlasGroup / replace AtlasGroup
 	VGridAtlas gridAtlas{};
