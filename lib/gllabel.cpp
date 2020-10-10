@@ -781,18 +781,18 @@ layout(location = 2) in vec4 vColor;
 
 out vec4 oColor;
 flat out ivec2 oBezierCoord;
+flat out ivec4 oGridRect;
 out vec2 oNormCoord;
-out vec4 oGridRect;
 
 float ushortFromVec2(vec2 v)
 {
 	return (v.y * 65280.0 + v.x * 255.0);
 }
 
-vec2 vec2FromPixel(ivec2 coord)
+ivec2 vec2FromPixel(ivec2 coord)
 {
 	vec4 pixel = texelFetch(uBezierAtlas, ivec2(coord), 0);
-	return vec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
+	return ivec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
 }
 
 void main()
@@ -800,7 +800,7 @@ void main()
 	oColor = vColor;
 	oBezierCoord = ivec2(vData) / 2;
 	oNormCoord = mod(vData, 2.0);
-	oGridRect = vec4(vec2FromPixel(oBezierCoord), vec2FromPixel(oBezierCoord + ivec2(1,0)));
+	oGridRect = ivec4(vec2FromPixel(oBezierCoord), vec2FromPixel(oBezierCoord + ivec2(1,0)));
 	gl_Position = uTransform*vec4(vPosition, 0.0, 1.0);
 }
 )";
@@ -821,8 +821,8 @@ uniform sampler2D uBezierAtlas;
 
 in vec4 oColor;
 flat in ivec2 oBezierCoord;
+flat in ivec4 oGridRect;
 in vec2 oNormCoord;
-in vec4 oGridRect;
 
 layout(location = 0) out vec4 outColor;
 
@@ -892,7 +892,12 @@ mat2 getUnitLineMatrix(vec2 b1, vec2 b2)
 	return mat2(V.x, -V.y, V.y, V.x);
 }
 
-void updateClosestCrossing(in vec2 porig[3], mat2 M, inout float closest, vec2 integerCell)
+ivec2 normalizedCoordToIntegerCell(vec2 ncoord)
+{
+	return clamp(ivec2(ncoord * oGridRect.zw), ivec2(0), oGridRect.zw - 1);
+}
+
+void updateClosestCrossing(in vec2 porig[3], mat2 M, inout float closest, ivec2 integerCell)
 {
 	vec2 p[3];
 	for (int i=0; i<3; i++) {
@@ -913,7 +918,7 @@ void updateClosestCrossing(in vec2 porig[3], mat2 M, inout float closest, vec2 i
 			               positionAt(porig[0].y, porig[1].y, porig[2].y, t[i]));
 			op += oNormCoord;
 
-			bool sameCell = floor(clamp(op * oGridRect.zw, vec2(0.5), vec2(oGridRect.zw)-0.5)) == integerCell;
+			bool sameCell = normalizedCoordToIntegerCell(op) == integerCell;
 
 			//if (posx > 0.0 && posx < 1.0 && posx < abs(closest)) {
 			if (sameCell && abs(posx) < abs(closest)) {
@@ -932,7 +937,7 @@ mat2 inverse(mat2 m)
 
 void main()
 {
-	vec2 integerCell = floor(clamp(oNormCoord * oGridRect.zw, vec2(0.5), vec2(oGridRect.zw)-0.5));
+	ivec2 integerCell = normalizedCoordToIntegerCell(oNormCoord);
 	ivec2 indicesCoord = ivec2(oGridRect.xy + integerCell);
 	vec2 cellMid = (integerCell + 0.5) / oGridRect.zw;
 
@@ -942,9 +947,6 @@ void main()
 	mat2 rotM = mat2(cos(theta), sin(theta), -sin(theta), cos(theta)); // note this is column major ordering
 
 	ivec4 indices1 = ivec4(texelFetch(uGridAtlas, indicesCoord, 0) * 255.0);
-	// indices2 = ivec4(texture(uAtlasSampler, vec2(indicesCoord.x + vGridSize.x, indicesCoord.y) * uTexelSize) * 255.0 + 0.5);
-
-	// bool moreThanFourIndices = indices1[0] < indices1[1];
 
 	// The mid-inside flag is encoded by the order of the beziers indices.
 	// See write_vgrid_cell_to_buffer() for details.
