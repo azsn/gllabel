@@ -23,8 +23,8 @@ public:
 		// "RGBA pixels" (12 bytes) of data.
 		// Both atlases also encode some extra information, which is explained
 		// where it is used in the code.
-		GLuint bezierAtlasId, gridAtlasId;
-		uint8_t *bezierAtlas, *gridAtlas;
+		GLuint gridAtlasId;
+		uint8_t *gridAtlas;
 		uint16_t nextBezierPos[2], nextGridPos[2]; // XY pixel coordinates
 		bool full; // For faster checking
 		bool uploaded;
@@ -47,7 +47,7 @@ public: // TODO: private
 	std::map<FT_Face, std::map<uint32_t, Glyph> > glyphs;
 	FT_Library ft;
 	FT_Face defaultFace;
-	GLuint glyphShader, uGridAtlas, uBezierAtlas, uTransform;
+	GLuint glyphShader, uGridAtlas, uTransform;
 	GLuint uGlyphData;
 
 	GLFontManager();

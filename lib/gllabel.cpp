@@ -305,14 +305,12 @@ GLFontManager::GLFontManager() : defaultFace(nullptr)
 
 	this->glyphShader = loadShaderProgram(kGlyphVertexShader, kGlyphFragmentShader);
 	this->uGridAtlas = glGetUniformLocation(glyphShader, "uGridAtlas");
-	this->uBezierAtlas = glGetUniformLocation(glyphShader, "uBezierAtlas");
 	this->uGlyphData = glGetUniformLocation(glyphShader, "uGlyphData");
 	this->uTransform = glGetUniformLocation(glyphShader, "uTransform");
 
 	this->UseGlyphShader();
 	glUniform1i(this->uGridAtlas, 0);
-	glUniform1i(this->uBezierAtlas, 1);
-	glUniform1i(this->uGlyphData, 2);
+	glUniform1i(this->uGlyphData, 1);
 
 	glm::mat4 iden = glm::mat4(1.0);
 	glUniformMatrix4fv(this->uTransform, 1, GL_FALSE, glm::value_ptr(iden));
@@ -360,26 +358,9 @@ GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 {
 	if (this->atlases.size() == 0 || this->atlases[this->atlases.size()-1].full) {
 		AtlasGroup group{};
-		group.bezierAtlas = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
+		group.glyphDataBuf = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
 		group.gridAtlas = new uint8_t[sq(kGridAtlasSize)*kAtlasChannels]();
-		//group.glyphDataBuf = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
 		group.uploaded = true;
-
-		glGenTextures(1, &group.bezierAtlasId);
-		glBindTexture(GL_TEXTURE_2D, group.bezierAtlasId);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kBezierAtlasSize, kBezierAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, group.bezierAtlas);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-		glGenTextures(1, &group.gridAtlasId);
-		glBindTexture(GL_TEXTURE_2D, group.gridAtlasId);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, group.gridAtlas);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
 		// https://www.khronos.org/opengl/wiki/Buffer_Texture
 		// TODO: Check GL_MAX_TEXTURE_BUFFER_SIZE
@@ -388,6 +369,14 @@ GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 		glGenTextures(1, &group.glyphDataBufTexId);
 		glBindTexture(GL_TEXTURE_BUFFER, group.glyphDataBufTexId);
 		glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA8, group.glyphDataBufId);
+
+		glGenTextures(1, &group.gridAtlasId);
+		glBindTexture(GL_TEXTURE_2D, group.gridAtlasId);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, group.gridAtlas);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
 		this->atlases.push_back(group);
 	}
@@ -626,7 +615,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	}
 
 	size_t offset = (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextBezierPos[0])*kAtlasChannels;
-	uint8_t *bezierData = atlas->bezierAtlas + offset;
+	uint8_t *bezierData = atlas->glyphDataBuf + offset;
 
 	Vec2 glyphSize(glyphWidth, glyphHeight);
 	write_glyph_data_to_buffer(
@@ -637,18 +626,6 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		atlas->nextGridPos[1],
 		kGridMaxSize,
 		kGridMaxSize);
-
-	//uint8_t *bezierData2 = atlas->glyphDataBuf + offset;
-	//+ atlas->nextGlyphDataBufPos;
-
-	//write_glyph_data_to_buffer(
-	//	bezierData2,
-	//	curves,
-	//	glyphSize,
-	//	atlas->nextGridPos[0],
-	//	atlas->nextGridPos[1],
-	//	kGridMaxSize,
-	//	kGridMaxSize);
 
 	// TODO: Integrate with AtlasGroup / replace AtlasGroup
 	VGridAtlas gridAtlas{};
@@ -673,7 +650,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	atlas->nextGridPos[0] += kGridMaxSize;
 	atlas->uploaded = false;
 
-	writeBMP("bezierAtlas.bmp", kBezierAtlasSize, kBezierAtlasSize, 4, atlas->bezierAtlas);
+	writeBMP("bezierAtlas.bmp", kBezierAtlasSize, kBezierAtlasSize, 4, atlas->glyphDataBuf);
 	writeBMP("gridAtlas.bmp", kGridAtlasSize, kGridAtlasSize, 4, atlas->gridAtlas);
 
 	return &this->glyphs[face][point];
@@ -699,14 +676,12 @@ void GLFontManager::UploadAtlases()
 			continue;
 		}
 
-		glBindTexture(GL_TEXTURE_2D, this->atlases[i].bezierAtlasId);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kBezierAtlasSize, kBezierAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].bezierAtlas);
-		glBindTexture(GL_TEXTURE_2D, this->atlases[i].gridAtlasId);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].gridAtlas);
-
 		glBindBuffer(GL_TEXTURE_BUFFER, this->atlases[i].glyphDataBufId);
 		glBufferData(GL_TEXTURE_BUFFER, sq(kBezierAtlasSize)*kAtlasChannels,
-			this->atlases[i].bezierAtlas, GL_STREAM_DRAW);
+			this->atlases[i].glyphDataBuf, GL_STREAM_DRAW);
+
+		glBindTexture(GL_TEXTURE_2D, this->atlases[i].gridAtlasId);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].gridAtlas);
 
 		atlases[i].uploaded = true;
 	}
@@ -731,8 +706,6 @@ void GLFontManager::UseAtlasTextures(uint16_t atlasIndex)
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].gridAtlasId);
 	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].bezierAtlasId);
-	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_BUFFER, this->atlases[atlasIndex].glyphDataBufTexId);
 }
 
@@ -803,7 +776,6 @@ static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC)
 namespace {
 const char *kGlyphVertexShader = R"(
 #version 330 core
-uniform sampler2D uBezierAtlas;
 uniform samplerBuffer uGlyphData;
 uniform mat4 uTransform;
 
@@ -850,7 +822,6 @@ precision highp float;
 #define kPixelWindowSize 1.0
 
 uniform sampler2D uGridAtlas;
-uniform sampler2D uBezierAtlas;
 uniform samplerBuffer uGlyphData;
 
 in vec4 oColor;
