@@ -306,15 +306,11 @@ GLFontManager::GLFontManager() : defaultFace(nullptr)
 	this->glyphShader = loadShaderProgram(kGlyphVertexShader, kGlyphFragmentShader);
 	this->uGridAtlas = glGetUniformLocation(glyphShader, "uGridAtlas");
 	this->uBezierAtlas = glGetUniformLocation(glyphShader, "uBezierAtlas");
-	this->uGridTexel = glGetUniformLocation(glyphShader, "uGridTexel");
-	this->uBezierTexel = glGetUniformLocation(glyphShader, "uBezierTexel");
 	this->uTransform = glGetUniformLocation(glyphShader, "uTransform");
 
 	this->UseGlyphShader();
 	glUniform1i(this->uGridAtlas, 0);
 	glUniform1i(this->uBezierAtlas, 1);
-	glUniform2f(this->uGridTexel, 1.0/kGridAtlasSize, 1.0/kGridAtlasSize);
-	glUniform2f(this->uBezierTexel, 1.0/kBezierAtlasSize, 1.0/kBezierAtlasSize);
 
 	glm::mat4 iden = glm::mat4(1.0);
 	glUniformMatrix4fv(this->uTransform, 1, GL_FALSE, glm::value_ptr(iden));
@@ -777,7 +773,6 @@ namespace {
 const char *kGlyphVertexShader = R"(
 #version 330 core
 uniform sampler2D uBezierAtlas;
-uniform vec2 uBezierTexel;
 uniform mat4 uTransform;
 
 layout(location = 0) in vec2 vPosition;
@@ -785,7 +780,7 @@ layout(location = 1) in vec2 vData;
 layout(location = 2) in vec4 vColor;
 
 out vec4 oColor;
-out vec2 oBezierCoord;
+flat out ivec2 oBezierCoord;
 out vec2 oNormCoord;
 out vec4 oGridRect;
 
@@ -794,18 +789,18 @@ float ushortFromVec2(vec2 v)
 	return (v.y * 65280.0 + v.x * 255.0);
 }
 
-vec2 vec2FromPixel(vec2 coord)
+vec2 vec2FromPixel(ivec2 coord)
 {
-	vec4 pixel = texture(uBezierAtlas, (coord+0.5)*uBezierTexel);
+	vec4 pixel = texelFetch(uBezierAtlas, ivec2(coord), 0);
 	return vec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
 }
 
 void main()
 {
 	oColor = vColor;
-	oBezierCoord = floor(vData * 0.5);
+	oBezierCoord = ivec2(vData) / 2;
 	oNormCoord = mod(vData, 2.0);
-	oGridRect = vec4(vec2FromPixel(oBezierCoord), vec2FromPixel(oBezierCoord + vec2(1,0)));
+	oGridRect = vec4(vec2FromPixel(oBezierCoord), vec2FromPixel(oBezierCoord + ivec2(1,0)));
 	gl_Position = uTransform*vec4(vPosition, 0.0, 1.0);
 }
 )";
@@ -823,11 +818,9 @@ precision highp float;
 
 uniform sampler2D uGridAtlas;
 uniform sampler2D uBezierAtlas;
-uniform vec2 uGridTexel;
-uniform vec2 uBezierTexel;
 
 in vec4 oColor;
-in vec2 oBezierCoord;
+flat in ivec2 oBezierCoord;
 in vec2 oNormCoord;
 in vec4 oGridRect;
 
@@ -854,15 +847,15 @@ float normalizedUshortFromVec2(vec2 v)
 	return (v.y * 65280.0 + v.x * 255.0) / 65536.0;
 }
 
-vec4 getPixelByXY(vec2 coord)
+vec4 getPixelByXY(ivec2 coord)
 {
-	return texture(uBezierAtlas, (coord+0.5)*uBezierTexel);
+	return texelFetch(uBezierAtlas, coord, 0);
 }
 
 void fetchBezier(int coordIndex, out vec2 p[3])
 {
 	for (int i=0; i<3; i++) {
-		vec4 pixel = getPixelByXY(vec2(oBezierCoord.x + 2 + coordIndex*3 + i, oBezierCoord.y));
+		vec4 pixel = getPixelByXY(ivec2(oBezierCoord.x + 2 + coordIndex*3 + i, oBezierCoord.y));
 		p[i] = vec2(normalizedUshortFromVec2(pixel.xy), normalizedUshortFromVec2(pixel.zw)) - oNormCoord;
 	}
 }
@@ -940,7 +933,7 @@ mat2 inverse(mat2 m)
 void main()
 {
 	vec2 integerCell = floor(clamp(oNormCoord * oGridRect.zw, vec2(0.5), vec2(oGridRect.zw)-0.5));
-	vec2 indicesCoord = oGridRect.xy + integerCell + 0.5;
+	ivec2 indicesCoord = ivec2(oGridRect.xy + integerCell);
 	vec2 cellMid = (integerCell + 0.5) / oGridRect.zw;
 
 	mat2 initrot = inverse(mat2(dFdx(oNormCoord) * kPixelWindowSize, dFdy(oNormCoord) * kPixelWindowSize));
@@ -948,8 +941,7 @@ void main()
 	float theta = pi/float(numSS);
 	mat2 rotM = mat2(cos(theta), sin(theta), -sin(theta), cos(theta)); // note this is column major ordering
 
-	ivec4 indices1;
-	indices1 = ivec4(texture(uGridAtlas, indicesCoord*uGridTexel) * 255.0 + 0.5);
+	ivec4 indices1 = ivec4(texelFetch(uGridAtlas, indicesCoord, 0) * 255.0);
 	// indices2 = ivec4(texture(uAtlasSampler, vec2(indicesCoord.x + vGridSize.x, indicesCoord.y) * uTexelSize) * 255.0 + 0.5);
 
 	// bool moreThanFourIndices = indices1[0] < indices1[1];

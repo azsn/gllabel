@@ -43,7 +43,7 @@ public: // TODO: private
 	std::map<FT_Face, std::map<uint32_t, Glyph> > glyphs;
 	FT_Library ft;
 	FT_Face defaultFace;
-	GLuint glyphShader, uGridAtlas, uBezierAtlas, uGridTexel, uBezierTexel, uTransform;
+	GLuint glyphShader, uGridAtlas, uBezierAtlas, uTransform;
 
 	GLFontManager();
 
