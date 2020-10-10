@@ -592,15 +592,10 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	}
 
 	// Find an open position in the bezier atlas
-	if (atlas->nextBezierPos[0] + bezierPixelLength > kBezierAtlasSize) {
-		// Next row
-		atlas->nextBezierPos[1] ++;
-		atlas->nextBezierPos[0] = 0;
-		if (atlas->nextBezierPos[1] >= kBezierAtlasSize) {
-			atlas->full = true;
-			atlas->uploaded = false;
-			atlas = this->GetOpenAtlasGroup();
-		}
+	if (atlas->glyphDataBufOffset + bezierPixelLength > sq(kBezierAtlasSize)) {
+		atlas->full = true;
+		atlas->uploaded = false;
+		atlas = this->GetOpenAtlasGroup();
 	}
 
 	// Find an open position in the grid atlas
@@ -614,8 +609,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		}
 	}
 
-	size_t offset = (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextBezierPos[0])*kAtlasChannels;
-	uint8_t *bezierData = atlas->glyphDataBuf + offset;
+	uint8_t *bezierData = atlas->glyphDataBuf + (atlas->glyphDataBufOffset * kAtlasChannels);
 
 	Vec2 glyphSize(glyphWidth, glyphHeight);
 	write_glyph_data_to_buffer(
@@ -636,8 +630,8 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	gridAtlas.WriteVGridAt(grid, atlas->nextGridPos[0], atlas->nextGridPos[1]);
 
 	GLFontManager::Glyph glyph{};
-	glyph.bezierAtlasPos[0] = atlas->nextBezierPos[0];
-	glyph.bezierAtlasPos[1] = atlas->nextBezierPos[1];
+	glyph.bezierAtlasPos[0] = atlas->glyphDataBufOffset;
+	glyph.bezierAtlasPos[1] = 0;
 	glyph.bezierAtlasPos[2] = this->atlases.size()-1;
 	glyph.size[0] = glyphWidth;
 	glyph.size[1] = glyphHeight;
@@ -646,7 +640,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	glyph.advance = face->glyph->metrics.horiAdvance;
 	this->glyphs[face][point] = glyph;
 
-	atlas->nextBezierPos[0] += bezierPixelLength;
+	atlas->glyphDataBufOffset += bezierPixelLength;
 	atlas->nextGridPos[0] += kGridMaxSize;
 	atlas->uploaded = false;
 
@@ -795,8 +789,7 @@ float ushortFromVec2(vec2 v)
 
 ivec2 vec2FromPixel(ivec2 coord)
 {
-	int x = coord.y * 256 + coord.x;
-	vec4 pixel = texelFetch(uGlyphData, x);
+	vec4 pixel = texelFetch(uGlyphData, coord.x);
 	return ivec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
 }
 
@@ -854,8 +847,7 @@ float normalizedUshortFromVec2(vec2 v)
 
 vec4 getPixelByXY(ivec2 coord)
 {
-	int x = coord.y * 256 + coord.x;
-	return texelFetch(uGlyphData, x);
+	return texelFetch(uGlyphData, coord.x);
 }
 
 void fetchBezier(int coordIndex, out vec2 p[3])

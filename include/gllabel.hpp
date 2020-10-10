@@ -25,13 +25,13 @@ public:
 		// where it is used in the code.
 		GLuint gridAtlasId;
 		uint8_t *gridAtlas;
-		uint16_t nextBezierPos[2], nextGridPos[2]; // XY pixel coordinates
+		uint16_t nextGridPos[2]; // XY pixel coordinates
 		bool full; // For faster checking
 		bool uploaded;
 
 		GLuint glyphDataBufId, glyphDataBufTexId;
 		uint8_t *glyphDataBuf;
-		uint16_t nextGlyphDataBufPos;
+		uint16_t glyphDataBufOffset; // pixel coordinates
 	};
 
 	struct Glyph
