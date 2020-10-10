@@ -28,6 +28,10 @@ public:
 		uint16_t nextBezierPos[2], nextGridPos[2]; // XY pixel coordinates
 		bool full; // For faster checking
 		bool uploaded;
+
+		GLuint glyphDataBufId, glyphDataBufTexId;
+		uint8_t *glyphDataBuf;
+		uint16_t nextGlyphDataBufPos;
 	};
 
 	struct Glyph
@@ -44,6 +48,7 @@ public: // TODO: private
 	FT_Library ft;
 	FT_Face defaultFace;
 	GLuint glyphShader, uGridAtlas, uBezierAtlas, uTransform;
+	GLuint uGlyphData;
 
 	GLFontManager();
 

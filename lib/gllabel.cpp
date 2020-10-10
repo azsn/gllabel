@@ -306,11 +306,13 @@ GLFontManager::GLFontManager() : defaultFace(nullptr)
 	this->glyphShader = loadShaderProgram(kGlyphVertexShader, kGlyphFragmentShader);
 	this->uGridAtlas = glGetUniformLocation(glyphShader, "uGridAtlas");
 	this->uBezierAtlas = glGetUniformLocation(glyphShader, "uBezierAtlas");
+	this->uGlyphData = glGetUniformLocation(glyphShader, "uGlyphData");
 	this->uTransform = glGetUniformLocation(glyphShader, "uTransform");
 
 	this->UseGlyphShader();
 	glUniform1i(this->uGridAtlas, 0);
 	glUniform1i(this->uBezierAtlas, 1);
+	glUniform1i(this->uGlyphData, 2);
 
 	glm::mat4 iden = glm::mat4(1.0);
 	glUniformMatrix4fv(this->uTransform, 1, GL_FALSE, glm::value_ptr(iden));
@@ -360,6 +362,7 @@ GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 		AtlasGroup group{};
 		group.bezierAtlas = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
 		group.gridAtlas = new uint8_t[sq(kGridAtlasSize)*kAtlasChannels]();
+		//group.glyphDataBuf = new uint8_t[sq(kBezierAtlasSize)*kAtlasChannels]();
 		group.uploaded = true;
 
 		glGenTextures(1, &group.bezierAtlasId);
@@ -377,6 +380,14 @@ GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+		// https://www.khronos.org/opengl/wiki/Buffer_Texture
+		// TODO: Check GL_MAX_TEXTURE_BUFFER_SIZE
+		glGenBuffers(1, &group.glyphDataBufId);
+		glBindBuffer(GL_TEXTURE_BUFFER, group.glyphDataBufId);
+		glGenTextures(1, &group.glyphDataBufTexId);
+		glBindTexture(GL_TEXTURE_BUFFER, group.glyphDataBufTexId);
+		glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA8, group.glyphDataBufId);
 
 		this->atlases.push_back(group);
 	}
@@ -614,7 +625,8 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		}
 	}
 
-	uint8_t *bezierData = atlas->bezierAtlas + (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextBezierPos[0])*kAtlasChannels;
+	size_t offset = (atlas->nextBezierPos[1]*kBezierAtlasSize + atlas->nextBezierPos[0])*kAtlasChannels;
+	uint8_t *bezierData = atlas->bezierAtlas + offset;
 
 	Vec2 glyphSize(glyphWidth, glyphHeight);
 	write_glyph_data_to_buffer(
@@ -625,6 +637,18 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		atlas->nextGridPos[1],
 		kGridMaxSize,
 		kGridMaxSize);
+
+	//uint8_t *bezierData2 = atlas->glyphDataBuf + offset;
+	//+ atlas->nextGlyphDataBufPos;
+
+	//write_glyph_data_to_buffer(
+	//	bezierData2,
+	//	curves,
+	//	glyphSize,
+	//	atlas->nextGridPos[0],
+	//	atlas->nextGridPos[1],
+	//	kGridMaxSize,
+	//	kGridMaxSize);
 
 	// TODO: Integrate with AtlasGroup / replace AtlasGroup
 	VGridAtlas gridAtlas{};
@@ -679,6 +703,11 @@ void GLFontManager::UploadAtlases()
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kBezierAtlasSize, kBezierAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].bezierAtlas);
 		glBindTexture(GL_TEXTURE_2D, this->atlases[i].gridAtlasId);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kGridAtlasSize, kGridAtlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, this->atlases[i].gridAtlas);
+
+		glBindBuffer(GL_TEXTURE_BUFFER, this->atlases[i].glyphDataBufId);
+		glBufferData(GL_TEXTURE_BUFFER, sq(kBezierAtlasSize)*kAtlasChannels,
+			this->atlases[i].bezierAtlas, GL_STREAM_DRAW);
+
 		atlases[i].uploaded = true;
 	}
 }
@@ -703,6 +732,8 @@ void GLFontManager::UseAtlasTextures(uint16_t atlasIndex)
 	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].gridAtlasId);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, this->atlases[atlasIndex].bezierAtlasId);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_BUFFER, this->atlases[atlasIndex].glyphDataBufTexId);
 }
 
 static GLuint loadShaderProgram(const char *vsCodeC, const char *fsCodeC)
@@ -773,6 +804,7 @@ namespace {
 const char *kGlyphVertexShader = R"(
 #version 330 core
 uniform sampler2D uBezierAtlas;
+uniform samplerBuffer uGlyphData;
 uniform mat4 uTransform;
 
 layout(location = 0) in vec2 vPosition;
@@ -791,7 +823,8 @@ float ushortFromVec2(vec2 v)
 
 ivec2 vec2FromPixel(ivec2 coord)
 {
-	vec4 pixel = texelFetch(uBezierAtlas, ivec2(coord), 0);
+	int x = coord.y * 256 + coord.x;
+	vec4 pixel = texelFetch(uGlyphData, x);
 	return ivec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
 }
 
@@ -818,6 +851,7 @@ precision highp float;
 
 uniform sampler2D uGridAtlas;
 uniform sampler2D uBezierAtlas;
+uniform samplerBuffer uGlyphData;
 
 in vec4 oColor;
 flat in ivec2 oBezierCoord;
@@ -849,7 +883,8 @@ float normalizedUshortFromVec2(vec2 v)
 
 vec4 getPixelByXY(ivec2 coord)
 {
-	return texelFetch(uBezierAtlas, coord, 0);
+	int x = coord.y * 256 + coord.x;
+	return texelFetch(uGlyphData, x);
 }
 
 void fetchBezier(int coordIndex, out vec2 p[3])
