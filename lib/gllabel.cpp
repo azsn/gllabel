@@ -124,9 +124,10 @@ void GLLabel::InsertText(std::u32string text, size_t index, glm::vec4 color, FT_
 			// This theoretically could overflow, but the atlas position will
 			// never be over half the size of a uint16, so it's fine.
 			unsigned int k = (j < 4) ? j : 6 - j;
-			unsigned int norm[2] = { k & 1, k > 1 };
-			v[j].data[0] = (glyph->bezierAtlasPos[0]<<1) + norm[0];
-			v[j].data[1] = (glyph->bezierAtlasPos[1]<<1) + norm[1];
+			unsigned int normX = k & 1;
+			unsigned int normY = k > 1;
+			unsigned int norm = (normX << 1) + normY;
+			v[j].data = (glyph->bezierAtlasPos[0] << 2) + norm;
 			this->verts[(index + i)*6 + j] = v[j];
 		}
 
@@ -240,7 +241,7 @@ void GLLabel::Render(float time, glm::mat4 transform)
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, pos));
-	glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
+	glVertexAttribPointer(1, 1, GL_UNSIGNED_INT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
 	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, color));
 
 	glDrawArrays(GL_TRIANGLES, 0, this->verts.size());
@@ -276,14 +277,16 @@ void GLLabel::Render(float time, glm::mat4 transform)
 			// This theoretically could overflow, but the atlas position will
 			// never be over half the size of a uint16, so it's fine.
 			unsigned int k = (j < 4) ? j : 6 - j;
-			x[j].data[0] = pipe->bezierAtlasPos[0]*2 + ((k & 1) ? 1 : 0);
-			x[j].data[1] = pipe->bezierAtlasPos[1]*2 + ((k > 1) ? 1 : 0);
+			unsigned int normX = k & 1;
+			unsigned int normY = k > 1;
+			unsigned int norm = (normX << 1) + normY;
+			x[j].data = (pipe->bezierAtlasPos[0] << 2) + norm;
 			// this->verts[(index + i)*6 + j] = v[j];
 		}
 
 		glBindBuffer(GL_ARRAY_BUFFER, this->caretBuffer);
 		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, pos));
-		glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
+		glVertexAttribPointer(1, 1, GL_UNSIGNED_INT, GL_FALSE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, data));
 		glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GLLabel::GlyphVertex), (void*)offsetof(GLLabel::GlyphVertex, color));
 
 		glBufferData(GL_ARRAY_BUFFER, 6 * sizeof(GlyphVertex), &x[0], GL_STREAM_DRAW);
@@ -582,7 +585,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 		}
 
 		GLFontManager::Glyph glyph{};
-		glyph.bezierAtlasPos[2] = -1;
+		glyph.bezierAtlasPos[1] = -1;
 		glyph.size[0] = glyphWidth;
 		glyph.size[1] = glyphHeight;
 		glyph.offset[0] = face->glyph->metrics.horiBearingX;
@@ -632,8 +635,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 
 	GLFontManager::Glyph glyph{};
 	glyph.bezierAtlasPos[0] = atlas->glyphDataBufOffset;
-	glyph.bezierAtlasPos[1] = 0;
-	glyph.bezierAtlasPos[2] = this->atlases.size()-1;
+	glyph.bezierAtlasPos[1] = this->atlases.size()-1;
 	glyph.size[0] = glyphWidth;
 	glyph.size[1] = glyphHeight;
 	glyph.offset[0] = face->glyph->metrics.horiBearingX;
@@ -775,11 +777,11 @@ uniform samplerBuffer uGlyphData;
 uniform mat4 uTransform;
 
 layout(location = 0) in vec2 vPosition;
-layout(location = 1) in vec2 vData;
+layout(location = 1) in uint vData;
 layout(location = 2) in vec4 vColor;
 
 out vec4 oColor;
-flat out ivec2 oBezierCoord;
+flat out uint glyphDataOffset;
 flat out ivec4 oGridRect;
 out vec2 oNormCoord;
 
@@ -788,18 +790,18 @@ float ushortFromVec2(vec2 v)
 	return (v.y * 65280.0 + v.x * 255.0);
 }
 
-ivec2 vec2FromPixel(ivec2 coord)
+ivec2 vec2FromPixel(uint offset)
 {
-	vec4 pixel = texelFetch(uGlyphData, coord.x);
+	vec4 pixel = texelFetch(uGlyphData, int(offset));
 	return ivec2(ushortFromVec2(pixel.xy), ushortFromVec2(pixel.zw));
 }
 
 void main()
 {
 	oColor = vColor;
-	oBezierCoord = ivec2(vData) / 2;
-	oNormCoord = mod(vData, 2.0);
-	oGridRect = ivec4(vec2FromPixel(oBezierCoord), vec2FromPixel(oBezierCoord + ivec2(1,0)));
+	glyphDataOffset = vData >> 2u;
+	oNormCoord = vec2((vData & 2u) >> 1, vData & 1u);
+	oGridRect = ivec4(vec2FromPixel(glyphDataOffset), vec2FromPixel(glyphDataOffset + 1u));
 	gl_Position = uTransform*vec4(vPosition, 0.0, 1.0);
 }
 )";
@@ -819,7 +821,7 @@ uniform sampler2D uGridAtlas;
 uniform samplerBuffer uGlyphData;
 
 in vec4 oColor;
-flat in ivec2 oBezierCoord;
+flat in uint glyphDataOffset;
 flat in ivec4 oGridRect;
 in vec2 oNormCoord;
 
@@ -846,15 +848,15 @@ float normalizedUshortFromVec2(vec2 v)
 	return (v.y * 65280.0 + v.x * 255.0) / 65536.0;
 }
 
-vec4 getPixelByXY(ivec2 coord)
+vec4 getPixelByOffset(int offset)
 {
-	return texelFetch(uGlyphData, coord.x);
+	return texelFetch(uGlyphData, offset);
 }
 
 void fetchBezier(int coordIndex, out vec2 p[3])
 {
 	for (int i=0; i<3; i++) {
-		vec4 pixel = getPixelByXY(ivec2(oBezierCoord.x + 2 + coordIndex*3 + i, oBezierCoord.y));
+		vec4 pixel = getPixelByOffset(int(glyphDataOffset) + 2 + coordIndex*3 + i);
 		p[i] = vec2(normalizedUshortFromVec2(pixel.xy), normalizedUshortFromVec2(pixel.zw)) - oNormCoord;
 	}
 }

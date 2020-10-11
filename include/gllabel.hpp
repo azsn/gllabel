@@ -38,7 +38,7 @@ public:
 	{
 		uint16_t size[2]; // Width and height in FT units
 		int16_t offset[2]; // Offset of glyph in FT units
-		uint16_t bezierAtlasPos[3]; // XYZ pixel coordinates (Z being atlas index)
+		uint16_t bezierAtlasPos[2]; // XZ pixel coordinates (Z being atlas index)
 		int16_t advance; // Amount to advance after character in FT units
 	};
 
@@ -94,11 +94,11 @@ private:
 		// XY coords of the vertex
 		glm::vec2 pos;
 
-		// The UV coords of the data for this glyph in the bezier atlas
-		// Also contains a vertex-dependent norm coordiate by encoding:
-		// encode: data[n] = coord[n] * 2 + norm[n]
-		// decode: norm[n] = data[n] % 2,  coord[n] = int(data[n] / 2)
-		uint16_t data[2];
+		// Bit 0 (low) is norm coord X (varies per vertex)
+		// Bit 1 is norm coord Y (varies per vertex)
+		// Bits 2-31 are texel offset (byte offset / 4) into
+		//   glyphDataBuf (same for all verticies of a glyph)
+		uint32_t data;
 
 		// RGBA color [0,255]
 		Color color;
