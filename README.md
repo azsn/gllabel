@@ -4,8 +4,8 @@ A C++ class for rendering vector text in OpenGL.
 
 This rendering method allows text to be arbitrarily scaled and rotated,
 just as it could be with CPU-rendered text. This method does not use
-Valve's Signed Distance Fields, and can load text quickly from TTF font
-files in real-time.
+[Valve's Signed Distance Fields](https://web.archive.org/web/20180127223712/https://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf),
+and can load text quickly from TTF font files in real-time.
 
 **Work in progress.**
 
