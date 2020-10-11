@@ -579,8 +579,10 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	// Plus two pixels for grid position information
 	uint16_t bezierPixelLength = 2 + curves.size()*3;
 
-	if (curves.size() == 0 || bezierPixelLength > kBezierAtlasSize) {
-		if (bezierPixelLength > kBezierAtlasSize) {
+	bool tooManyCurves = uint32_t(bezierPixelLength) > sq(uint32_t(kBezierAtlasSize));
+
+	if (curves.size() == 0 || tooManyCurves) {
+		if (tooManyCurves) {
 			std::cerr << "WARN: Glyph " << point << " has too many curves\n";
 		}
 
