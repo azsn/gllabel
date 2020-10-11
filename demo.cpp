@@ -1,5 +1,5 @@
 /*
- * zelbrium <zelbrium@gmail.com>, 2017.
+ * zelbrium <zelbrium@gmail.com>, 2016-2020.
  *
  * Demo code for GLLabel. Depends on GLFW3, GLEW, GLM, FreeType2, and C++11.
  */

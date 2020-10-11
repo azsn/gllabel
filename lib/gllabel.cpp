@@ -1,9 +1,9 @@
 /*
- * zelbrium <zelbrium@gmail.com>, 2016.
+ * zelbrium <zelbrium@gmail.com>, 2016-2020.
  *
  * This code is based on Will Dobbie's WebGL vector-based text rendering (2016).
  * It can be found here:
- * http://wdobbie.com/post/gpu-text-rendering-with-vector-textures/
+ * https://wdobbie.com/post/gpu-text-rendering-with-vector-textures/
  *
  * Dobbie's original code used a pre-generated bezier curve atlas generated
  * from a PDF. This GLLabel class allows for live text rendering based on
@@ -11,15 +11,9 @@
  *
  * Text is rendered size-independently. This means you can scale, rotate,
  * or reposition text rendered using GLLabel without any loss of quality.
- * All that's required is a font file to load the text from. TTF works well.
- *
- * The only remaining portion of Dobbie's code is the fragment shader.
- * Although the code had no license, comments seemed to imply the code is
- * freely available for use. I have contacted him to ask for a license,
- * but received no response. Therefore, all of this code except the
- * fragment shader is under the Apache License v2.0, while the fragment
- * shader is unlicensed until further notice.
- * (Dobbie, please let me know if you have issues with this.)
+ * All that's required is a font file to load the text from. Currently, any TTF
+ * font that does not use cubic beziers or make use of very detailed glyphs,
+ * such as many Hanzi / Kanji characters, should work.
  */
 
 #include <gllabel.hpp>
