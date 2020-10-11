@@ -17,8 +17,8 @@ good. Maybe one day I'll get around to implementing better text layout.
 Documentation is commented throughout the code, however some parts are quite
 complex. Contact me with any questions and I'll attempt to respond.
 
-Screenshot:
-![screenshot](screenshot.png)
+Demo:  
+![Demo video](demo.gif)
 
 Building
 -------
