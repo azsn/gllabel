@@ -124,8 +124,9 @@ void GLLabel::InsertText(std::u32string text, size_t index, glm::vec4 color, FT_
 			// This theoretically could overflow, but the atlas position will
 			// never be over half the size of a uint16, so it's fine.
 			unsigned int k = (j < 4) ? j : 6 - j;
-			v[j].data[0] = glyph->bezierAtlasPos[0]*2 + ((k & 1) ? 1 : 0);
-			v[j].data[1] = glyph->bezierAtlasPos[1]*2 + ((k > 1) ? 1 : 0);
+			unsigned int norm[2] = { k & 1, k > 1 };
+			v[j].data[0] = (glyph->bezierAtlasPos[0]<<1) + norm[0];
+			v[j].data[1] = (glyph->bezierAtlasPos[1]<<1) + norm[1];
 			this->verts[(index + i)*6 + j] = v[j];
 		}
 
