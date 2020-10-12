@@ -142,9 +142,10 @@ VGrid::VGrid(
 		beziers, glyphSize, gridWidth, gridHeight);
 }
 
-// Each grid cell is represented as one byte in the atlas, and values 0 and 1
-// are reserved for special meaning. This leaves a limit of 254 beziers per
-// grid/glyph. More on the meaning of values 1 and 0 in the VGridAtlas struct
+// Each bezier index is represented as one byte in the grid cell,
+// and values 0 and 1 are reserved for special meaning.
+// This leaves a limit of 254 beziers per grid/glyph.
+// More on the meaning of values 1 and 0 in the VGridAtlas struct
 // definition and in write_vgrid_cell_to_buffer().
 static const uint8_t kBezierIndexUnused = 0;
 static const uint8_t kBezierIndexSortMeta = 1;
