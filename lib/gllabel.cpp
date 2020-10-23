@@ -18,6 +18,7 @@
 
 #include <gllabel.hpp>
 #include "vgrid.hpp"
+#include "cubic2quad.hpp"
 #include <set>
 #include <fstream>
 #include <iostream>
@@ -388,6 +389,8 @@ struct OutlineDecomposeState
 	std::vector<Bezier2> *curves;
 	FT_Pos metricsX;
 	FT_Pos metricsY;
+	double *c2qOut;
+	bool clockwise;
 };
 
 /*
@@ -410,10 +413,17 @@ static std::vector<Bezier2> GetCurvesForOutline(FT_Outline *outline)
 		metricsY = std::min(metricsY, outline->points[i].y);
 	}
 
+	FT_Orientation orientation = FT_Outline_Get_Orientation(outline);
+	bool clockwise = (orientation == FT_ORIENTATION_FILL_RIGHT);
+
+	double c2qOut[C2Q_OUT_LEN];
+
 	OutlineDecomposeState state{};
 	state.curves = &curves;
 	state.metricsX = metricsX;
 	state.metricsY = metricsY;
+	state.c2qOut = c2qOut;
+	state.clockwise = clockwise;
 
 	FT_Outline_Funcs funcs{};
 	funcs.move_to = [](const FT_Vector *to, void *user) -> int {
@@ -423,27 +433,75 @@ static std::vector<Bezier2> GetCurvesForOutline(FT_Outline *outline)
 	};
 	funcs.line_to = [](const FT_Vector *to, void *user) -> int {
 		auto state = static_cast<OutlineDecomposeState *>(user);
+		Vec2 begin = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
+		Vec2 end = Vec2(to->x - state->metricsX, to->y - state->metricsY);
+
 		Bezier2 b;
-		b.e0 = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
-		b.c = b.e0;
-		b.e1 = Vec2(to->x - state->metricsX, to->y - state->metricsY);
+		if (state->clockwise) {
+			b.e0 = begin;
+			b.c = begin;
+			b.e1 = end;
+		} else {
+			b.e0 = end;
+			b.c = end;
+			b.e1 = begin;
+		}
+
 		state->curves->push_back(b);
 		state->prevPoint = *to;
 		return 0;
 	};
 	funcs.conic_to = [](const FT_Vector *control, const FT_Vector *to, void *user) -> int {
 		auto state = static_cast<OutlineDecomposeState *>(user);
+		Vec2 begin = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
+		Vec2 c = Vec2(control->x - state->metricsX, control->y - state->metricsY);
+		Vec2 end = Vec2(to->x - state->metricsX, to->y - state->metricsY);
+
 		Bezier2 b;
-		b.e0 = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
-		b.c = Vec2(control->x - state->metricsX, control->y - state->metricsY);
-		b.e1 = Vec2(to->x - state->metricsX, to->y - state->metricsY);
+		if (state->clockwise) {
+			b.e0 = begin;
+			b.c = c;
+			b.e1 = end;
+		} else {
+			b.e0 = end;
+			b.c = c;
+			b.e1 = begin;
+		}
+
 		state->curves->push_back(b);
 		state->prevPoint = *to;
 		return 0;
 	};
-	funcs.cubic_to = [](const FT_Vector *, const FT_Vector *, const FT_Vector *, void *) -> int {
-		// Not implemented
-		return -1;
+	funcs.cubic_to = [](const FT_Vector *c1, const FT_Vector *c2, const FT_Vector *to, void *user) -> int {
+		auto state = static_cast<OutlineDecomposeState *>(user);
+		double in[8] = {
+			(double)state->prevPoint.x - state->metricsX, (double)state->prevPoint.y - state->metricsY,
+			(double)c1->x - state->metricsX, (double)c1->y - state->metricsY,
+			(double)c2->x - state->metricsX, (double)c2->y - state->metricsY,
+			(double)to->x - state->metricsX, (double)to->y - state->metricsY,
+		};
+		double *out = state->c2qOut;
+		int nvals = 6 * cubic2quad(in, 5, out);
+		for (int i = 0; i < nvals; i += 6) {
+			Vec2 begin = Vec2((float)out[i], (float)out[i+1]);
+			Vec2 c = Vec2((float)out[i+2], (float)out[i+3]);
+			Vec2 end = Vec2((float)out[i+4], (float)out[i+5]);
+
+			Bezier2 b;
+			if (state->clockwise) {
+				b.e0 = begin;
+				b.c = c;
+				b.e1 = end;
+			} else {
+				b.e0 = end;
+				b.c = c;
+				b.e1 = begin;
+			}
+
+			state->curves->push_back(b);
+		}
+		state->prevPoint = *to;
+		return 0;
 	};
 
 	if (FT_Outline_Decompose(outline, &funcs, &state) == 0) {
