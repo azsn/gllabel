@@ -29,4 +29,4 @@ LDLIBS=${GL_LIBS} ${GLFW_LIBS} ${GLEW_LIBS} ${FT2_LIBS}
 run: demo
 	./demo
 
-demo: demo.cpp lib/gllabel.cpp lib/types.cpp lib/vgrid.cpp lib/cubic2quad.cpp
+demo: demo.cpp lib/gllabel.cpp lib/types.cpp lib/vgrid.cpp lib/cubic2quad.cpp lib/outline.cpp

@@ -18,7 +18,7 @@
 
 #include <gllabel.hpp>
 #include "vgrid.hpp"
-#include "cubic2quad.hpp"
+#include "outline.hpp"
 #include <set>
 #include <fstream>
 #include <iostream>
@@ -383,133 +383,6 @@ GLFontManager::AtlasGroup * GLFontManager::GetOpenAtlasGroup()
 	return &this->atlases[this->atlases.size()-1];
 }
 
-struct OutlineDecomposeState
-{
-	FT_Vector prevPoint;
-	std::vector<Bezier2> *curves;
-	FT_Pos metricsX;
-	FT_Pos metricsY;
-	double *c2qOut;
-	bool clockwise;
-};
-
-/*
- * Uses FreeType's outline decomposing to convert an outline into a vector
- * of beziers. This just makes working with the outline easier.
- */
-static std::vector<Bezier2> GetCurvesForOutline(FT_Outline *outline)
-{
-	std::vector<Bezier2> curves;
-
-	if (outline->n_points <= 0) {
-		return curves;
-	}
-
-	// For some reason, the glyphs aren't always positioned with their bottom
-	// left corner at 0,0. So find the min x and y values.
-	FT_Pos metricsX=outline->points[0].x, metricsY=outline->points[0].y;
-	for (short i = 1; i < outline->n_points; i++) {
-		metricsX = std::min(metricsX, outline->points[i].x);
-		metricsY = std::min(metricsY, outline->points[i].y);
-	}
-
-	FT_Orientation orientation = FT_Outline_Get_Orientation(outline);
-	bool clockwise = (orientation == FT_ORIENTATION_FILL_RIGHT);
-
-	double c2qOut[C2Q_OUT_LEN];
-
-	OutlineDecomposeState state{};
-	state.curves = &curves;
-	state.metricsX = metricsX;
-	state.metricsY = metricsY;
-	state.c2qOut = c2qOut;
-	state.clockwise = clockwise;
-
-	FT_Outline_Funcs funcs{};
-	funcs.move_to = [](const FT_Vector *to, void *user) -> int {
-		auto state = static_cast<OutlineDecomposeState *>(user);
-		state->prevPoint = *to;
-		return 0;
-	};
-	funcs.line_to = [](const FT_Vector *to, void *user) -> int {
-		auto state = static_cast<OutlineDecomposeState *>(user);
-		Vec2 begin = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
-		Vec2 end = Vec2(to->x - state->metricsX, to->y - state->metricsY);
-
-		Bezier2 b;
-		if (state->clockwise) {
-			b.e0 = begin;
-			b.c = begin;
-			b.e1 = end;
-		} else {
-			b.e0 = end;
-			b.c = end;
-			b.e1 = begin;
-		}
-
-		state->curves->push_back(b);
-		state->prevPoint = *to;
-		return 0;
-	};
-	funcs.conic_to = [](const FT_Vector *control, const FT_Vector *to, void *user) -> int {
-		auto state = static_cast<OutlineDecomposeState *>(user);
-		Vec2 begin = Vec2(state->prevPoint.x - state->metricsX, state->prevPoint.y - state->metricsY);
-		Vec2 c = Vec2(control->x - state->metricsX, control->y - state->metricsY);
-		Vec2 end = Vec2(to->x - state->metricsX, to->y - state->metricsY);
-
-		Bezier2 b;
-		if (state->clockwise) {
-			b.e0 = begin;
-			b.c = c;
-			b.e1 = end;
-		} else {
-			b.e0 = end;
-			b.c = c;
-			b.e1 = begin;
-		}
-
-		state->curves->push_back(b);
-		state->prevPoint = *to;
-		return 0;
-	};
-	funcs.cubic_to = [](const FT_Vector *c1, const FT_Vector *c2, const FT_Vector *to, void *user) -> int {
-		auto state = static_cast<OutlineDecomposeState *>(user);
-		double in[8] = {
-			(double)state->prevPoint.x - state->metricsX, (double)state->prevPoint.y - state->metricsY,
-			(double)c1->x - state->metricsX, (double)c1->y - state->metricsY,
-			(double)c2->x - state->metricsX, (double)c2->y - state->metricsY,
-			(double)to->x - state->metricsX, (double)to->y - state->metricsY,
-		};
-		double *out = state->c2qOut;
-		int nvals = 6 * cubic2quad(in, 5, out);
-		for (int i = 0; i < nvals; i += 6) {
-			Vec2 begin = Vec2((float)out[i], (float)out[i+1]);
-			Vec2 c = Vec2((float)out[i+2], (float)out[i+3]);
-			Vec2 end = Vec2((float)out[i+4], (float)out[i+5]);
-
-			Bezier2 b;
-			if (state->clockwise) {
-				b.e0 = begin;
-				b.c = c;
-				b.e1 = end;
-			} else {
-				b.e0 = end;
-				b.c = c;
-				b.e1 = begin;
-			}
-
-			state->curves->push_back(b);
-		}
-		state->prevPoint = *to;
-		return 0;
-	};
-
-	if (FT_Outline_Decompose(outline, &funcs, &state) == 0) {
-		return curves;
-	}
-	return std::vector<Bezier2>();
-}
-
 #pragma pack(push, 1)
 struct bitmapdata
 {
@@ -622,7 +495,7 @@ GLFontManager::Glyph * GLFontManager::GetGlyphForCodepoint(FT_Face face, uint32_
 	uint8_t gridWidth = kGridMaxSize;
 	uint8_t gridHeight = kGridMaxSize;
 
-	std::vector<Bezier2> curves = GetCurvesForOutline(&face->glyph->outline);
+	std::vector<Bezier2> curves = GetBeziersForOutline(&face->glyph->outline);
 	VGrid grid(curves, Vec2(glyphWidth, glyphHeight), gridWidth, gridHeight);
 
 	// Although the data is represented as a 32bit texture, it's actually

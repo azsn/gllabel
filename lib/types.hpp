@@ -1,3 +1,6 @@
+#ifndef TYPES_H
+#define TYPES_H
+
 #include <stdint.h>
 
 struct Vec2 {
@@ -24,3 +27,4 @@ struct Bezier2 {
 	int IntersectVert(float x, float outY[2]);
 };
 
+#endif
